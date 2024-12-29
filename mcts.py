@@ -83,11 +83,9 @@ class MCTS:
             policy[-26*4:] = policy[-26*4:][::-1]
         self.current_node.child_policies = policy
         if self.current_node.state.winner != PFPiece.Empty:
-            color = PFPiece.White if self.current_node.state.white_to_move else PFPiece.Black
-            value = 1 if color == self.current_node.state.winner else -1
+            value = 1 if self.current_node.state.winner == PFPiece.White else -1
         while self.current_node is not None:
             self.current_node.visits += 1
-            total_child_visits = sum([child.visits for child in self.current_node.children.values() if child is not None])
             if self.current_node.parent:
                 self.current_node.total_value += value if self.current_node.parent.state.white_to_move else -value
             self.current_node = self.current_node.parent
