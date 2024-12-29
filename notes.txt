@@ -1,0 +1,9 @@
+- CPU/GPU issues
+    - Running the network just doesn't take that long, so using the GPU is currently a waste.
+        - That means parallelizing MCTS runs to batch forward passes is also not helpful.
+    - The CPU is the bottleneck
+    - Surprisingly, movegen isn't that bad. Right now the killer is converting states to tensors
+        - Each modification to the tensor, or concatenating the whole thing, is taking way longer than expected
+        - Improved this by using numpy arrays as an intermediate
+        - Still taking longer than you'd think! Needs further optimization
+        - Should probably use np all the way through PFState etc

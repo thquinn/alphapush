@@ -3,7 +3,7 @@ import torch.nn as nn
 from mcts import MCTS
 from pushfight import PFPiece, PFState
 
-def generate_training_data(net, min_training_items=256, evals_per_position=128, parallelism=10):
+def generate_training_data(net, min_training_items=128, evals_per_position=128, parallelism=1):
     net.eval()
     training_inputs = []
     training_outputs = []
@@ -23,7 +23,7 @@ def generate_training_data(net, min_training_items=256, evals_per_position=128, 
             log_probs = nn.functional.softmax(output[:,1:], dim=1)
             for i, mcts in enumerate(mctses):
                 value = output[i, 0].item()
-                policy = [tensor.item() for tensor in log_probs[i,:].data]
+                policy = log_probs[i,:].tolist()
                 mcts.receive_value_and_policy(value, policy)
         for mcts in mctses:
             mcts.values.append(1 if mcts.root.state.white_to_move else -1)

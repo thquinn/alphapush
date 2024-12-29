@@ -2,7 +2,8 @@ from collections import deque
 from dataclasses import dataclass
 from enum import Enum, IntFlag
 from itertools import chain
-from torch import tensor
+import numpy as np
+import torch
 
 class PFPiece(IntFlag):
     Empty = 0,
@@ -190,31 +191,49 @@ class PFState:
         if len(self.moves) == 0:
             self.winner = PFPiece.Black if self.white_to_move else PFPiece.White
     
+    @torch.no_grad
     def to_tensor(self):
         # 3 elements: one-hot, are we [placing pushers], [placing round pieces], or [playing the game]?
-        t = [1 if self.num_pieces % 5 < 3 else 0, 1 if self.num_pieces % 5 >= 3 and self.num_pieces < 10 else 0, 1 if self.num_pieces == 10 else 0]
+        phase = np.zeros(3, dtype=np.int8)
+        if self.num_pieces < 10:
+            phase[0 if self.num_pieces % 5 < 3 else 1] = 1
+        else:
+            phase[2] = 1
         # 1 element: how many moves do we have before we have to push?
-        t.append(self.moves_left)
-        # rotate the board to face the active player
-        board = self.board if self.white_to_move else self.board[::-1]
+        moves_left = [self.moves_left]
         # 26 elements: bitfield of all pieces
-        t.extend([0 if piece == PFPiece.Empty else 1 for piece in board])
         # 26 elements: bitfield of all allied pieces
-        color = PFPiece.White if self.white_to_move else PFPiece.Black
-        t.extend([1 if piece & color else 0 for piece in board])
         # 26 elements: bitfield of all enemy pieces
-        enemy = PFPiece.Black if self.white_to_move else PFPiece.White
-        t.extend([1 if piece & enemy else 0 for piece in board])
         # 26 elements: bitfield of all allied pushers
-        t.extend([1 if piece & (color | PFPiece.Pusher) else 0 for piece in board])
         # 26 elements: bitfield of all enemy pushers
-        t.extend([1 if piece & (enemy | PFPiece.Pusher) else 0 for piece in board])
-        # 26 elements: bitfield of all enemy pushers
-        rotated_anchor_position = self.anchor_position if self.white_to_move else 25 - self.anchor_position
-        t.extend([1 if i == rotated_anchor_position else 0 for i in range(26)])
+        board = np.array(self.board)
+        if not self.white_to_move:
+            board = np.flip(board)
+        pieces = (board != PFPiece.Empty)
+        color = PFPiece.White if self.white_to_move else PFPiece.Black
+        enemy = PFPiece.Black if self.white_to_move else PFPiece.White
+        allied_pieces = ((board & color) > 0).astype(np.int8)
+        enemy_pieces = ((board & enemy) > 0).astype(np.int8)
+        allied_pushers = ((board & (color | PFPiece.Pusher)) > 0).astype(np.int8)
+        enemy_pushers = ((board & (enemy | PFPiece.Pusher)) > 0).astype(np.int8)
+         # 26 elements: bitfield of anchor position
+        anchor_pos = np.zeros(26, dtype=np.int8)
+        if self.anchor_position > -1:
+            rotated_anchor = self.anchor_position if self.white_to_move else 25 - self.anchor_position
+            anchor_pos[rotated_anchor] = 1
         # 160 total elements
+        t = np.concatenate([
+            phase,
+            moves_left,
+            pieces.astype(np.int8),
+            allied_pieces,
+            enemy_pieces,
+            allied_pushers,
+            enemy_pushers,
+            anchor_pos
+        ])
         assert len(t) == 160
-        return tensor(t).float()
+        return torch.from_numpy(t).float()
     
     def __repr__(self):
         formatting_tokens = ['  ', '', '\n', '', '', '\n', '', '', '', '\n', '', '', '', '\n', '', '', '', '\n', '', '', '', '\n  ', '', '', '\n  ', '']
