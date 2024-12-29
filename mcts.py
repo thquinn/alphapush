@@ -96,9 +96,10 @@ class MCTS:
     def to_policy_tensor(self):
         assert self.current_node == self.root
         policy = [0] * 806
+        child_sum = sum([child.visits for child in self.root.children.values()])
         for move, child in self.root.children.items():
             if child is not None:
-                policy[int(move)] = child.visits / self.root.visits
+                policy[int(move)] = child.visits / child_sum
         return policy
 
     def to_legality_mask(self):

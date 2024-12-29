@@ -11,8 +11,8 @@ class AlphaPushNetwork(nn.Module):
         #   [26*4]: (policy) from space A, push in direction B
         output_size = 1 + 26 + 26*26 + 26*4 # 807
         input_size = 160
-        hidden_layer_size = 1000
-        num_inner_layers = 3
+        hidden_layer_size = 512
+        num_inner_layers = 2
         self.model = nn.Sequential(
             nn.Linear(input_size, hidden_layer_size),
             *([
