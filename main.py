@@ -5,10 +5,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from network import AlphaPushNetwork
-from pushfight import PFPiece, PFState
 from training import eval_match, generate_training_data
 
-model_prefix = 'model_750K'
+model_prefix = 'model_1700K'
 models = glob.glob(f'{model_prefix}_v*.pt')
 version = 1
 if len(models) > 0:
@@ -29,7 +28,7 @@ optimizer = torch.optim.SGD(net.parameters(), lr=.1)
 
 while True:
     # Self-play.
-    batches_per_iteration = 20
+    batches_per_iteration = 200
     for batch in range(batches_per_iteration):
         print(f'Generating self-play batch {batch + 1} of {batches_per_iteration}...')
         training_inputs, training_outputs = generate_training_data(net)

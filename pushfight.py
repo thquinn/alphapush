@@ -238,7 +238,7 @@ class PFState:
     def __repr__(self):
         formatting_tokens = ['  ', '', '\n', '', '', '\n', '', '', '', '\n', '', '', '', '\n', '', '', '', '\n', '', '', '', '\n  ', '', '', '\n  ', '']
         piece_tokens = [str(p) for p in self.board]
-        anchor_tokens = ['<' if i == self.anchor_position else ' ' for i in range(26)]
+        anchor_tokens = ['!' if i == self.anchor_position else ' ' for i in range(26)]
         board_string = ''.join(chain.from_iterable(zip(formatting_tokens, piece_tokens, anchor_tokens)))
         status_string = ' | '.join([s for s in [
             f'{'White' if self.white_to_move else 'Black'} to move',

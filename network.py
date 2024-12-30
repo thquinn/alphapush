@@ -11,15 +11,17 @@ class AlphaPushNetwork(nn.Module):
         #   [26*4]: (policy) from space A, push in direction B
         output_size = 1 + 26 + 26*26 + 26*4 # 807
         input_size = 160
-        hidden_layer_size = 512
-        num_inner_layers = 2
+        hidden_layers = [1024, 512, 512, 256, 256, 512]
         self.model = nn.Sequential(
-            nn.Linear(input_size, hidden_layer_size),
-            *([
-                nn.Linear(hidden_layer_size, hidden_layer_size),
-                nn.ReLU(),
-            ] * num_inner_layers),
-            nn.Linear(hidden_layer_size, output_size),
+            nn.Linear(input_size, hidden_layers[0]),
+            *[
+                item for i in range(len(hidden_layers) - 1)
+                for item in (
+                    nn.Linear(hidden_layers[i], hidden_layers[i + 1]),
+                    nn.ReLU()
+                )
+            ],
+            nn.Linear(hidden_layers[-1], output_size),
         )
         self.value_activation = nn.Tanh()
     

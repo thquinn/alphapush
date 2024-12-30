@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 
 class MCTSNode:
-    EXPLORATION = math.sqrt(2)
+    EXPLORATION = 10
 
     parent: 'MCTSNode'
     children: dict[PFMove, 'MCTSNode']
@@ -24,7 +24,7 @@ class MCTSNode:
         self.total_value = 0
     
     def get_upper_bound(self, policy):
-        return self.total_value / self.visits + policy * MCTSNode.EXPLORATION * math.sqrt(math.log(self.parent.visits) / self.visits)
+        return self.total_value / self.visits + policy * MCTSNode.EXPLORATION * math.sqrt(self.parent.visits) / (1 + self.visits)
 
 class MCTS:
     root: MCTSNode
@@ -36,9 +36,8 @@ class MCTS:
     def __init__(self, root_state, root_output):
         self.root = MCTSNode(None, root_state)
         self.root.visits = 1
-        root_policies = [tensor.item() for tensor in root_output[1:].data]
-        self.root.child_policies = root_policies
         self.current_node = self.root
+        self.receive_network_output(root_output)
         self.history = []
         self.values = []
         self.policies = []
@@ -49,10 +48,9 @@ class MCTS:
             self.select_and_expand()
             input_tensor = self.get_current_state_tensor()
             output = net.forward(input_tensor)
-            log_probs = nn.functional.softmax(output[1:], dim=0)
-            self.receive_value_and_policy(output[0].item(), [tensor.item() for tensor in log_probs.data])
+            self.receive_network_output(output)
             evals += 1
-        self.advance_root()
+        self.advance_root(temperature=.5)
     
     def select_and_expand(self):
         while self.current_node.state.winner == PFPiece.Empty and all(self.current_node.children.values()):
@@ -73,15 +71,28 @@ class MCTS:
     def get_current_state_tensor(self):
         return self.current_node.state.to_tensor()
     
-    def receive_value_and_policy(self, value, policy):
-        assert len(policy) == 806
-        if not self.current_node.state.white_to_move:
-            # The network saw the board in reverse order, so now we reverse each component of the network output.
-            value = -value
-            policy[:26] = policy[:26][::-1]
-            policy[26:26+26*26] = policy[26:26+26*26][::-1]
-            policy[-26*4:] = policy[-26*4:][::-1]
-        self.current_node.child_policies = policy
+    def receive_network_output(self, output):
+        value = output[0].item()
+        if self.current_node.state.winner == PFPiece.Empty:
+            policy = output[1:]
+            assert len(policy) == 806
+            if not self.current_node.state.white_to_move:
+                # The network saw the board in reverse order, so now we reverse each component of the network output.
+                value = -value
+                policy = torch.cat((
+                    torch.flip(policy[:26], [0]),
+                    torch.flip(policy[26:26+26*26], [0]),
+                    torch.flip(policy[-26*4:], [0]),
+                ))
+            # Set policy.
+            policy_mask = np.ones(806, dtype=bool)
+            assert len(self.current_node.children) > 0
+            for move in self.current_node.children.keys():
+                policy_mask[int(move)] = False
+            policy = policy.masked_fill(torch.from_numpy(policy_mask), float('-inf'))
+            policy = nn.functional.softmax(policy, dim=0).tolist()
+            self.current_node.child_policies = policy
+        # Backpropagate value up the tree.
         if self.current_node.state.winner != PFPiece.Empty:
             value = 1 if self.current_node.state.winner == PFPiece.White else -1
         while self.current_node is not None:
@@ -99,19 +110,19 @@ class MCTS:
             if child is not None:
                 policy[int(move)] = child.visits / child_sum
         return policy
-
-    def to_legality_mask(self):
-        assert len(self.root.state.moves) > 0
-        legality = [0] * 806
-        for move in self.root.state.moves:
-            legality[int(move)] = 1
-        return legality
     
-    def advance_root(self):
+    def advance_root(self, temperature=1, debug_print=False):
         self.history.append(self.root.state)
         moves = list(self.root.children.keys())
-        weights = [child.visits / (self.root.visits - 1) for child in self.root.children.values()]
+        if debug_print:
+            print(list(zip(moves, [child.visits for child in self.root.children.values()], [f'{(self.root.child_policies[int(move)] * 100):.2f}%' for move in self.root.children.keys()])))
+        weights = np.array([child.visits / (self.root.visits - 1) for child in self.root.children.values()])
+        if temperature != 1:
+            weights = weights ** (1 / temperature)
+            weights /= weights.sum()
         move = np.random.choice(moves, p=weights)
+        if debug_print:
+            print(move)
         self.root = self.root.children[move]
         self.root.parent = None
         self.current_node = self.root

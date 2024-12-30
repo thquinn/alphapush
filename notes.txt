@@ -7,3 +7,17 @@
         - Improved this by using numpy arrays as an intermediate
         - Still taking longer than you'd think! Needs further optimization
         - Should probably use np all the way through PFState etc
+    - I'm realizing that you either have to train on CPU, or do a lot of shuffling of tensors around: gotta make parallel worth it somehow
+- 750K (160, 512, 512, 512, 807)
+    - It definitely learned to place pieces on the line, and usually to move them away from the edge
+    - Most of the bugs seem to be fixed, but there's still the occasional do-nothing game where the agents somehow can't see the win-in-2.
+    - These games seem like they take longer than usual to reach 200 history.
+    - 750K_v006 policy priors are in the approximate range [-3, 3]: since these are multipliers, they should really be non-negative.
+        - This is resulting in a very narrow MCTS.
+    - Now using most robust child (best move only) in test matches instead of weighted by visits.
+        - Oop, wait: we can't actually do this, since MCTS and the networks are both deterministic. We could try lowering the temperature...?
+    - The network is probably just not deep enough. Let's do a run with a bigger net...
+    - I'd forgotten to apply a softmax to the policy logits when instantiating MCTS: oops!
+        - Also forgot to flip everything if the root state is black to play
+- 1700K (160, 1024, 512, 512, 256, 256, 512, 807)
+    - Upped exploration (aka c_PUCT in the AlphaZero paper) to 10, but it still seems like it's too low

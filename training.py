@@ -11,7 +11,11 @@ def generate_training_data(net, min_training_items=128, evals_per_position=128, 
     root_output = net.forward(PFState().to_tensor())
     while len(training_outputs) < min_training_items:
         for i, mcts in enumerate(mctses):
-            if mcts is None or mcts.root.state.winner != PFPiece.Empty:
+            if mcts is None or mcts.root.state.winner != PFPiece.Empty or len(mcts.history) > 200:
+                if mcts and len(mcts.history) > 200:
+                    for state in mcts.history[-6:]:
+                        print(state)
+                    print('Game hit 200 moves. Restarting...')
                 mctses[i] = MCTS(PFState(), root_output)
         for eval in range(evals_per_position):
             # Gather input vectors from all MCTS instances.
@@ -20,11 +24,8 @@ def generate_training_data(net, min_training_items=128, evals_per_position=128, 
             input_tensor = torch.stack([mcts.get_current_state_tensor() for mcts in mctses])
             # Get inferences on all active positions, update MCTS instances.
             output = net.forward(input_tensor)
-            log_probs = nn.functional.softmax(output[:,1:], dim=1)
             for i, mcts in enumerate(mctses):
-                value = output[i, 0].item()
-                policy = log_probs[i,:].tolist()
-                mcts.receive_value_and_policy(value, policy)
+                mcts.receive_value_and_policy(output[i])
         for mcts in mctses:
             mcts.values.append(1 if mcts.root.state.white_to_move else -1)
             mcts.policies.append(mcts.to_policy_tensor())
@@ -43,8 +44,9 @@ def generate_training_data(net, min_training_items=128, evals_per_position=128, 
     training_outputs = torch.tensor(training_outputs)
     return training_inputs, training_outputs
 
-def eval_match(old_net, new_net, games=40, evals_per_position=128):
+def eval_match(old_net, new_net, games=100, evals_per_position=128):
     new_wins = 0
+    white_wins = 0
     for game in range(games):
         print(f'Starting evaluation game {game + 1} of {games}.')
         state = PFState()
@@ -64,5 +66,8 @@ def eval_match(old_net, new_net, games=40, evals_per_position=128):
             print('New network wins.')
         else:
             print('Old network wins.')
+        if state.winner == PFPiece.White:
+            white_wins += 1
     print(f'New network won {new_wins} of {games} games ({(new_wins / games * 100):.2f}%).')
+    print(f'(White won {white_wins}/{games}.)')
     return new_wins / games >= .55
