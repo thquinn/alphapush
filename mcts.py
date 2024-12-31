@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 
 class MCTSNode:
-    EXPLORATION = 10
+    EXPLORATION = 50
 
     parent: 'MCTSNode'
     children: dict[PFMove, 'MCTSNode']
@@ -35,7 +35,7 @@ class MCTS:
 
     def __init__(self, root_state, root_output):
         self.root = MCTSNode(None, root_state)
-        self.root.visits = 1
+        self.root.visits = 0
         self.current_node = self.root
         self.receive_network_output(root_output)
         self.history = []
@@ -50,7 +50,7 @@ class MCTS:
             output = net.forward(input_tensor)
             self.receive_network_output(output)
             evals += 1
-        self.advance_root(temperature=.5)
+        self.advance_root(temperature=.25, debug_print=True)
     
     def select_and_expand(self):
         while self.current_node.state.winner == PFPiece.Empty and all(self.current_node.children.values()):

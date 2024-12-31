@@ -25,7 +25,7 @@ def generate_training_data(net, min_training_items=128, evals_per_position=128, 
             # Get inferences on all active positions, update MCTS instances.
             output = net.forward(input_tensor)
             for i, mcts in enumerate(mctses):
-                mcts.receive_value_and_policy(output[i])
+                mcts.receive_network_output(output[i])
         for mcts in mctses:
             mcts.values.append(1 if mcts.root.state.white_to_move else -1)
             mcts.policies.append(mcts.to_policy_tensor())
@@ -39,16 +39,16 @@ def generate_training_data(net, min_training_items=128, evals_per_position=128, 
                 training_inputs.extend([state.to_tensor() for state in mcts.history])
                 training_outputs.extend([[training_values[i]] + training_policies[i] for i in range(len(training_values))])
                 assert len(training_inputs) == len(training_outputs)
-                print(f'Self-play game finished. Batch contains {len(training_inputs)} examples.')
     training_inputs = torch.stack(training_inputs)
     training_outputs = torch.tensor(training_outputs)
     return training_inputs, training_outputs
 
-def eval_match(old_net, new_net, games=100, evals_per_position=128):
+def eval_match(old_net, new_net, games=100, evals_per_position=128, verbose=False):
     new_wins = 0
     white_wins = 0
     for game in range(games):
-        print(f'Starting evaluation game {game + 1} of {games}.')
+        if verbose:
+            print(f'Starting evaluation game {game + 1} of {games}.')
         state = PFState()
         new_plays_white = game % 2 == 0
         white, black = (new_net, old_net) if new_plays_white else (old_net, new_net)
@@ -58,14 +58,16 @@ def eval_match(old_net, new_net, games=100, evals_per_position=128):
             mcts = MCTS(state, root_output)
             mcts.run_with_net(net, evals_per_position)
             state = mcts.root.state
-            print()
-            print(state)
-        print()
+            if verbose:
+                print()
+                print(state)
         if (state.winner == PFPiece.White) == new_plays_white:
             new_wins += 1
-            print('New network wins.')
+            if verbose:
+                print('\nNew network wins.')
         else:
-            print('Old network wins.')
+            if verbose:
+                print('\nOld network wins.')
         if state.winner == PFPiece.White:
             white_wins += 1
     print(f'New network won {new_wins} of {games} games ({(new_wins / games * 100):.2f}%).')

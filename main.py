@@ -30,11 +30,9 @@ while True:
     # Self-play.
     batches_per_iteration = 200
     for batch in range(batches_per_iteration):
-        print(f'Generating self-play batch {batch + 1} of {batches_per_iteration}...')
         training_inputs, training_outputs = generate_training_data(net)
         training_policies = training_outputs[:,1:]
         policy_masks = (training_policies == 0)
-        print(f'Batch of size {training_inputs.shape[0]} generated. Updating network...')
         net.train()
         predictions = net(training_inputs)
         loss_value = loss_fn_value(predictions[:,:1], training_outputs[:,:1])
@@ -47,10 +45,11 @@ while True:
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()
-        print('Network updated.')
+        print(f'Ran self-play batch {batch + 1}/{batches_per_iteration} of {len(training_inputs)} examples.')
 
     # Evaluation.
     old_net = torch.load(f'{model_prefix}_v{version:03}.pt', weights_only=False).cpu()
+    print('Starting eval match...')
     new_is_better = eval_match(old_net, net)
     if new_is_better:
         version += 1

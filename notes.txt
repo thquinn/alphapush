@@ -7,6 +7,7 @@
         - Improved this by using numpy arrays as an intermediate
         - Still taking longer than you'd think! Needs further optimization
         - Should probably use np all the way through PFState etc
+        - In general, we'll want to store game states in a way that's easy for both movegen and conversion to network input
     - I'm realizing that you either have to train on CPU, or do a lot of shuffling of tensors around: gotta make parallel worth it somehow
 - 750K (160, 512, 512, 512, 807)
     - It definitely learned to place pieces on the line, and usually to move them away from the edge
@@ -21,3 +22,10 @@
         - Also forgot to flip everything if the root state is black to play
 - 1700K (160, 1024, 512, 512, 256, 256, 512, 807)
     - Upped exploration (aka c_PUCT in the AlphaZero paper) to 10, but it still seems like it's too low
+- TODO
+    - sanity check: check if we can minimize single-batch loss
+    - another round of profiling
+    - look at policy vs MCTS exploration
+    - proper parallelizing of MCTS
+    - try GPU again
+    - seeing anecdotal evidence that the training values should incorporate the MCTS result, not just the game result
