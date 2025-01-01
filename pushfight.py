@@ -247,5 +247,7 @@ class PFState:
             f'{self.moves_left} moves left' if self.num_pieces == 10 else None,
         ] if s])
         return '\n'.join([board_string, status_string])
-
     def __str__(self): return self.__repr__()
+    
+    def __hash__(self):
+        return hash(str(self)) # Only using this experimentally, so this doesn't need to be performant.

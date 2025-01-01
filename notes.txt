@@ -3,6 +3,7 @@
         - That means parallelizing MCTS runs to batch forward passes is also not helpful.
     - The CPU is the bottleneck
     - Surprisingly, movegen isn't that bad. Right now the killer is converting states to tensors
+        - Maybe I shouldn't be surprised: replacing random playouts with value predictions is
         - Each modification to the tensor, or concatenating the whole thing, is taking way longer than expected
         - Improved this by using numpy arrays as an intermediate
         - Still taking longer than you'd think! Needs further optimization
@@ -21,11 +22,56 @@
     - I'd forgotten to apply a softmax to the policy logits when instantiating MCTS: oops!
         - Also forgot to flip everything if the root state is black to play
 - 1700K (160, 1024, 512, 512, 256, 256, 512, 807)
-    - Upped exploration (aka c_PUCT in the AlphaZero paper) to 10, but it still seems like it's too low
-- TODO
-    - sanity check: check if we can minimize single-batch loss
+    - Upped exploration (aka c_PUCT in the AlphaZero paper) to 10, but it still seems like it's too low (now to 50)
+    - Modifications made to network output before using them in MCTS need to be parallelizable.
+        - Example: rotating the board for black is cute, but it means that half of the policy outputs need to be rearranged before storing in MCTS tree.
+            - We could maybe parallelize this by sorting network inputs by state.white_to_play, so at least the policies that need rearranging are all together
+            - But then it becomes annoying to get them back to the MCTS instance they belong to.
     - another round of profiling
-    - look at policy vs MCTS exploration
-    - proper parallelizing of MCTS
-    - try GPU again
+        - CPU parallelism=1: generated 200 examples in 23.495507 seconds. (.117s per)
+        - CPU parallelism=20: generated 4000 examples in 228.565861 seconds. (.057s per)
+        - GPU parallelism=1: generated 200 examples in 39.540972 seconds. (.197s per)
+        - GPU parallelism=20: generated 4000 examples in 343.205210 seconds. (.086s per)
+- 1M (160, 512, 256, 256, 256, 256, 512, 807)
+    - Lowered exploration back down to 5: if MCTS is largely driven by policy, then the result after running will be too similar and we have no delta to train on
+    - Added momentum to SGD, lowered learning rate
+    - check game states that are close to a win: make sure even a crappy network can find the win with enough playouts
+        - white to play, has to move a round piece out of the way so a pusher can come in and win
+            - 1M_v006 takes 1-2K playouts to see the line, fighting against policy: the move it lands on has 1%, and a non-winning move has 51%.
+            - Uh oh: 1M_v009 needs 2-4K to see the line. At least policy is less confident about the wrong move at 49%...?
+    - random thought: seems a bit of a waste to have training games and eval games. why not have all games be both?
+        - round robin, train with jitter(?) on all games to create the next generation
+    - 1Mv8 is about even with 1700Kv3, 65% against 750Kv6
+    - Switching from 128 -> 1024 playout training games: ~12800 training examples in ~1000s.
+    - Suddenly, white is winning almost all promotion games. Are we overconcentrating our visits, causing duplicate games?
+        - Promotion games are still only 128 playouts, which can be policy dominated.
+        - Increasing playouts should also result in more unique games if only because it should result in longer games.
+        - 1Mv9 vs 1700Kv3
+            - @ 128 playouts: New network won 68 of 100 games (68.00%). 57 unique games. Average length 22.61. White won 80/100.
+            - @ 256 playouts: New network won 70 of 100 games (70.00%). 63 unique games. Average length 26.93. White won 78/100.
+            - @ 1024 playouts: New network won 80 of 100 games (80.00%). 67 unique games. White won 70/100.
+        - It might not actually be that bad to have duplicate games, unless the reason is that the networks are stupidly losing immediately.
+    - 1M_v009 has learned that pushing is good, and isn't really moving much...
+- TODO
+    - check this position, where 1M_v009 at 20K playouts thinks White's best move is to move the left pusher to the edge on the bottom left:
+      . . 
+    . . .
+    . w w .
+    . b W .
+    W B W B!
+    . . B .
+      . b .
+      . .
+    White to move | 1 moves left
+        - of course, black then fails to see the win-in-two
+    - check value outputs for mate-in-1 positions
+    - using policy logits directly in computing upper bound instead of making a probability distribution: faster, too! Something like e^x.
+    - parallelize promotion games, include game length cap
+    - self-play is redoing a ton of work. can't we just build a single giant MCTS tree and any node with enough visits can serve as a training example?
+        - would want to explore wider than a typical MCTS search since we're not just looking for winners, but really just any example
+        - therefore we'd want to differentiate between visits made on UCT grounds vs. those just for funsies
+        - we _could_ try to cut out some of the exploitation that hits leaf nodes over and over, but could also just optimize tree traversal
+        - this gets us more policy examples, but what about value?
     - seeing anecdotal evidence that the training values should incorporate the MCTS result, not just the game result
+    - try debugging and tuning hyperparameters on an even smaller network and game board
+    - some kind of "curriculum": start later into piece placement?

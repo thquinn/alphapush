@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 
 class MCTSNode:
-    EXPLORATION = 50
+    EXPLORATION = 5
 
     parent: 'MCTSNode'
     children: dict[PFMove, 'MCTSNode']
@@ -23,8 +23,11 @@ class MCTSNode:
         self.visits = 0
         self.total_value = 0
     
+    def average_reward(self):
+        return self.total_value / self.visits
+    
     def get_upper_bound(self, policy):
-        return self.total_value / self.visits + policy * MCTSNode.EXPLORATION * math.sqrt(self.parent.visits) / (1 + self.visits)
+        return self.average_reward() + policy * MCTSNode.EXPLORATION * math.sqrt(self.parent.visits) / (1 + self.visits)
 
 class MCTS:
     root: MCTSNode
@@ -50,7 +53,7 @@ class MCTS:
             output = net.forward(input_tensor)
             self.receive_network_output(output)
             evals += 1
-        self.advance_root(temperature=.25, debug_print=True)
+        self.advance_root(temperature=.25)
     
     def select_and_expand(self):
         while self.current_node.state.winner == PFPiece.Empty and all(self.current_node.children.values()):
@@ -115,12 +118,17 @@ class MCTS:
         self.history.append(self.root.state)
         moves = list(self.root.children.keys())
         if debug_print:
-            print(list(zip(moves, [child.visits for child in self.root.children.values()], [f'{(self.root.child_policies[int(move)] * 100):.2f}%' for move in self.root.children.keys()])))
-        weights = np.array([child.visits / (self.root.visits - 1) for child in self.root.children.values()])
-        if temperature != 1:
-            weights = weights ** (1 / temperature)
-            weights /= weights.sum()
-        move = np.random.choice(moves, p=weights)
+            prints = list(zip(moves, [child.visits for child in self.root.children.values()], [f'{(self.root.child_policies[int(move)] * 100):.2f}%' for move in self.root.children.keys()]))
+            prints.sort(key=lambda p: p[1], reverse=True)
+            print(prints)
+        if temperature == 0:
+            move = max(self.root.children, key=lambda k: self.root.children[k].visits)
+        else:
+            weights = np.array([child.visits / (self.root.visits - 1) for child in self.root.children.values()])
+            if temperature != 1:
+                weights = weights ** (1 / temperature)
+                weights /= weights.sum()
+            move = np.random.choice(moves, p=weights)
         if debug_print:
             print(move)
         self.root = self.root.children[move]

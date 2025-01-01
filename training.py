@@ -1,9 +1,11 @@
+import math
+import time
 import torch
 import torch.nn as nn
 from mcts import MCTS
 from pushfight import PFPiece, PFState
 
-def generate_training_data(net, min_training_items=128, evals_per_position=128, parallelism=1):
+def generate_training_data(net, min_training_items=1024, evals_per_position=128, parallelism=1):
     net.eval()
     training_inputs = []
     training_outputs = []
@@ -43,16 +45,22 @@ def generate_training_data(net, min_training_items=128, evals_per_position=128, 
     training_outputs = torch.tensor(training_outputs)
     return training_inputs, training_outputs
 
-def eval_match(old_net, new_net, games=100, evals_per_position=128, verbose=False):
+def eval_match(old_net, new_net, games=100, evals_per_position=256, verbose=False):
     new_wins = 0
     white_wins = 0
+    game_hashes = set()
+    total_moves = 0
+    start_time = time.time()
     for game in range(games):
         if verbose:
             print(f'Starting evaluation game {game + 1} of {games}.')
         state = PFState()
         new_plays_white = game % 2 == 0
         white, black = (new_net, old_net) if new_plays_white else (old_net, new_net)
+        state_hashes = []
         while state.winner == PFPiece.Empty:
+            state_hashes.append(hash(state))
+            total_moves += 1
             net = white if state.white_to_move else black
             root_output = white(state.to_tensor())
             mcts = MCTS(state, root_output)
@@ -61,6 +69,7 @@ def eval_match(old_net, new_net, games=100, evals_per_position=128, verbose=Fals
             if verbose:
                 print()
                 print(state)
+        game_hashes.add(tuple(state_hashes + [hash(state)]))
         if (state.winner == PFPiece.White) == new_plays_white:
             new_wins += 1
             if verbose:
@@ -70,6 +79,6 @@ def eval_match(old_net, new_net, games=100, evals_per_position=128, verbose=Fals
                 print('\nOld network wins.')
         if state.winner == PFPiece.White:
             white_wins += 1
-    print(f'New network won {new_wins} of {games} games ({(new_wins / games * 100):.2f}%).')
-    print(f'(White won {white_wins}/{games}.)')
+    print(f'Finished in {math.floor(time.time() - start_time)} seconds.')
+    print(f'New network won {new_wins} of {games} games ({(new_wins / games * 100):.2f}%). {len(game_hashes)} unique games. Average length {(total_moves / games):.2f}. White won {white_wins}/{games}.')
     return new_wins / games >= .55
