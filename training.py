@@ -5,7 +5,7 @@ import torch.nn as nn
 from mcts import MCTS
 from pushfight import PFPiece, PFState
 
-def generate_training_data(net, min_training_items=1024, evals_per_position=128, parallelism=1):
+def generate_training_data(net, min_training_items, evals_per_position=1024, parallelism=1):
     net.eval()
     training_inputs = []
     training_outputs = []
@@ -62,7 +62,7 @@ def eval_match(old_net, new_net, games=100, evals_per_position=256, verbose=Fals
             state_hashes.append(hash(state))
             total_moves += 1
             net = white if state.white_to_move else black
-            root_output = white(state.to_tensor())
+            root_output = net.forward(state.to_tensor())
             mcts = MCTS(state, root_output)
             mcts.run_with_net(net, evals_per_position)
             state = mcts.root.state
@@ -79,6 +79,6 @@ def eval_match(old_net, new_net, games=100, evals_per_position=256, verbose=Fals
                 print('\nOld network wins.')
         if state.winner == PFPiece.White:
             white_wins += 1
-    print(f'Finished in {math.floor(time.time() - start_time)} seconds.')
-    print(f'New network won {new_wins} of {games} games ({(new_wins / games * 100):.2f}%). {len(game_hashes)} unique games. Average length {(total_moves / games):.2f}. White won {white_wins}/{games}.')
+    print(f'Finished {games} {evals_per_position}-eval games in {math.floor(time.time() - start_time)} seconds.')
+    print(f'New network won {new_wins} of {games} ({(new_wins / games * 100):.2f}%). {len(game_hashes)} unique games. Average length {(total_moves / games):.2f}. White won {white_wins}/{games}.')
     return new_wins / games >= .55

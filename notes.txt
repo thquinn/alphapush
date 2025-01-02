@@ -3,7 +3,7 @@
         - That means parallelizing MCTS runs to batch forward passes is also not helpful.
     - The CPU is the bottleneck
     - Surprisingly, movegen isn't that bad. Right now the killer is converting states to tensors
-        - Maybe I shouldn't be surprised: replacing random playouts with value predictions is
+        - Maybe I shouldn't be surprised: replacing random playouts with value predictions hugely reduces the load on movegen
         - Each modification to the tensor, or concatenating the whole thing, is taking way longer than expected
         - Improved this by using numpy arrays as an intermediate
         - Still taking longer than you'd think! Needs further optimization
@@ -42,7 +42,7 @@
     - random thought: seems a bit of a waste to have training games and eval games. why not have all games be both?
         - round robin, train with jitter(?) on all games to create the next generation
     - 1Mv8 is about even with 1700Kv3, 65% against 750Kv6
-    - Switching from 128 -> 1024 playout training games: ~12800 training examples in ~1000s.
+    - Switching from 128 -> 1024 playout training games: ~12800 training examples in ~1000s. (NOTE: looks like I accidentally failed to change this.)
     - Suddenly, white is winning almost all promotion games. Are we overconcentrating our visits, causing duplicate games?
         - Promotion games are still only 128 playouts, which can be policy dominated.
         - Increasing playouts should also result in more unique games if only because it should result in longer games.
@@ -51,9 +51,22 @@
             - @ 256 playouts: New network won 70 of 100 games (70.00%). 63 unique games. Average length 26.93. White won 78/100.
             - @ 1024 playouts: New network won 80 of 100 games (80.00%). 67 unique games. White won 70/100.
         - It might not actually be that bad to have duplicate games, unless the reason is that the networks are stupidly losing immediately.
+            - It's not great: even if we're seeing 60-70/100 unique games, they likely only differ at the very end
+        - Switching to 256-visit promotion games: more playouts seems to give better signal
+            - That's if you go by my biased definition of "better signal": the newer network winning more
     - 1M_v009 has learned that pushing is good, and isn't really moving much...
-- TODO
-    - check this position, where 1M_v009 at 20K playouts thinks White's best move is to move the left pusher to the edge on the bottom left:
+    - After v9, every new network is terrible, getting as low as 28% winrate.
+    - A "network" that outputs all zeros is going to be better than early networks since it's vanilla MCTS, versus MCTS with random errors
+        - We should use this to generate training data until a network can beat it
+        - But is that true? Apparently not.
+            - @ 256 playouts:
+                - vs new network 1Mv1: New network won 55 of 100 (55.00%). 100 unique games. Average length 13.71. White won 69/100.
+                - vs new network 1Mv9: New network won 81 of 100 (81.00%). 100 unique games. Average length 20.46. White won 51/100.
+            - @ 512 playouts:
+                - vs new network 1Mv1: New network won 58 of 100 (58.00%). 100 unique games. Average length 14.31. White won 68/100.
+                - vs new network 1Mv9: New network won 83 of 100 (83.00%). 100 unique games. Average length 17.92. White won 49/100.
+        - It's not really vanilla MCTS, since there are no actual rollouts, just zeros. Unlikely to reach winning states at much depth.
+- INVESTIGATION: check this position, where 1M_v009 at 20K playouts thinks White's best move is to move the left pusher to the edge on the bottom left:
       . . 
     . . .
     . w w .
@@ -64,14 +77,50 @@
       . .
     White to move | 1 moves left
         - of course, black then fails to see the win-in-two
-    - check value outputs for mate-in-1 positions
-    - using policy logits directly in computing upper bound instead of making a probability distribution: faster, too! Something like e^x.
+			  . .
+			. . .
+			B w w .
+			. b . .
+			. B W!B
+			. . W .
+			  . . .
+			  W b
+        - The bad move is in third place with low policy prior and 1/4 the visits of the top, reasonable move
+        - Black is also failing to see a win-in-1 at 20K playouts that it spots at 1K because bad moves are catching up with more playouts
+            - It might just be that it's also a guaranteed win, and the slower move has a slightly higher policy prior
+            - With 0 moves it only has two push options, and value is set correctly. Win-in-1 had a 40/60 incorrect policy.
+            - Seeing two problems even at 20K playouts
+                - Extremely high values getting overpowered by high policy priors
+                    - With ~50 root children, about half are only getting a single visit. We want a higher exploration factor, but then the policy is too extreme
+                    - The policy of 1M_v9 is just too extreme
+                        - [(Move@5>21, 9639, '0.97', '0.13%'), (Move@25>13, 5747, '0.04', '61.19%'), ...
+                        - The top move is a guaranteed win and the second is essentially a draw, but because it has 470x the policy prior, it is still eating half the visits
+                        - Logits are 5.22 and -0.89, respectively. e^x ain't gonna fix that. How did this logit get so high?
+                        - There's even a 7.66 logit, but it seems to be for an illegal move.
+                        - Of course, if the high logit were for a good move, I'd be thrilled to see it.
+                        - If we're fairly confident about the value, we should stop caring about the policy prior.
+                        - Part of this is the network's fault, but part is the bound calculation
+                - MCTS not finding a high expected value for a win-in-2 (three pushers ready to move into winning position)
+                    - it's seeing it if it's literally the only move
+                    - looks like this is just caused by the first problem: a non-winning move has a huge policy prior
+                    - somehow, lowering exploration is making it worse
+                    - okay, we were flipping value estimates from the network incorrectly
+                    - win-in-2s aren't able to overcome low policy priors unless there are very few children
+                    - tested with NullNet, which had all 3 winning moves top at 20K playouts, had to increase exploration to ~50 to make it "vanilla" MCTS
+- 1M2 (same topology)
+    - Hoping that the too-wide range of priors was the result of low-playout games which were dominated by policy priors, leading to a self-enforcing cycle.
+    - Restarting with 1024 playout training, also fixed the incorrect value prior bug
+- TODO
     - parallelize promotion games, include game length cap
+    - using policy logits directly in computing upper bound instead of making a probability distribution: faster, too! Something like e^x.
     - self-play is redoing a ton of work. can't we just build a single giant MCTS tree and any node with enough visits can serve as a training example?
         - would want to explore wider than a typical MCTS search since we're not just looking for winners, but really just any example
         - therefore we'd want to differentiate between visits made on UCT grounds vs. those just for funsies
         - we _could_ try to cut out some of the exploitation that hits leaf nodes over and over, but could also just optimize tree traversal
         - this gets us more policy examples, but what about value?
+            - once we have enough policy examples, we can play those games out normally
+        - thinking about it more: "a ton of work" is not accurate. the high branching factor of the game begs to differ.
+            - but then again, if the policy output is opinionated, we can end up in the same sub-branches. see: our promotion matches containing duplicate games
     - seeing anecdotal evidence that the training values should incorporate the MCTS result, not just the game result
     - try debugging and tuning hyperparameters on an even smaller network and game board
     - some kind of "curriculum": start later into piece placement?

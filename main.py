@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from network import AlphaPushNetwork
 from training import eval_match, generate_training_data
 
-model_prefix = 'model_1M'
+model_prefix = 'model_1M2'
 models = glob.glob(f'{model_prefix}_v*.pt')
 version = 1
 if len(models) > 0:
@@ -27,12 +27,12 @@ print(f'{pytorch_total_params} total parameters.')
 loss_fn_value = nn.MSELoss()
 loss_fn_policy = nn.MSELoss()
 loss_policy_weight = 5
-optimizer = torch.optim.SGD(net.parameters(), lr=.01, momentum=0.9)
+optimizer = torch.optim.SGD(net.parameters(), lr=.02, momentum=0.9)
 
 while True:
     # Self-play.
     batch_size = 128
-    examples_per_iteration = batch_size * 400
+    examples_per_iteration = batch_size * 200
     generation_parallelism = 20
     generation_passes = 4
     for generation_pass in range(generation_passes):

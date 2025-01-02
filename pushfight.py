@@ -109,6 +109,25 @@ class PFState:
         copy.anchor_position = original.anchor_position
         copy.moves = original.moves
         return copy
+    @classmethod
+    def construct(cls, board_string: str, white_to_move: bool, moves_left: int, anchor_position: int):
+        assert len(board_string) == 26
+        state = PFState(set_moves=False)
+        for i, char in enumerate(board_string):
+            if char == 'w':
+                state.board[i] = PFPiece.White
+            elif char == 'W':
+                state.board[i] = PFPiece.White | PFPiece.Pusher
+            elif char == 'b':
+                state.board[i] = PFPiece.Black
+            elif char == 'B':
+                state.board[i] = PFPiece.Black | PFPiece.Pusher
+        state.num_pieces = len([p for p in state.board if p != PFPiece.Empty])
+        state.white_to_move = white_to_move
+        state.moves_left = moves_left
+        state.anchor_position = anchor_position
+        state.set_moves()
+        return state
 
     def set_moves(self):
         if self.num_pieces < 10:
@@ -158,12 +177,14 @@ class PFState:
     
     def move(self, move: PFMove, set_moves=True):
         if move.placeIndex != -1:
+            assert self.num_pieces < 10
             self.board[move.placeIndex] = (PFPiece.White if self.white_to_move else PFPiece.Black) | (PFPiece.Pusher if self.num_pieces % 5 < 3 else 0)
             self.num_pieces += 1
             self.white_to_move = self.num_pieces < 5 or self.num_pieces == 10
             if self.num_pieces == 10:
                 self.moves_left = 2
         elif move.moveFromIndex != -1:
+            assert self.moves_left > 0
             self.board[move.moveToIndex] = self.board[move.moveFromIndex]
             self.board[move.moveFromIndex] = PFPiece.Empty
             self.moves_left -= 1

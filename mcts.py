@@ -75,13 +75,11 @@ class MCTS:
         return self.current_node.state.to_tensor()
     
     def receive_network_output(self, output):
-        value = output[0].item()
         if self.current_node.state.winner == PFPiece.Empty:
             policy = output[1:]
             assert len(policy) == 806
             if not self.current_node.state.white_to_move:
                 # The network saw the board in reverse order, so now we reverse each component of the network output.
-                value = -value
                 policy = torch.cat((
                     torch.flip(policy[:26], [0]),
                     torch.flip(policy[26:26+26*26], [0]),
@@ -96,6 +94,7 @@ class MCTS:
             policy = nn.functional.softmax(policy, dim=0).tolist()
             self.current_node.child_policies = policy
         # Backpropagate value up the tree.
+        value = output[0].item()
         if self.current_node.state.winner != PFPiece.Empty:
             value = 1 if self.current_node.state.winner == PFPiece.White else -1
         while self.current_node is not None:
@@ -118,7 +117,9 @@ class MCTS:
         self.history.append(self.root.state)
         moves = list(self.root.children.keys())
         if debug_print:
-            prints = list(zip(moves, [child.visits for child in self.root.children.values()], [f'{(self.root.child_policies[int(move)] * 100):.2f}%' for move in self.root.children.keys()]))
+            expected_values = [f'{child.average_reward():.2f}' for child in self.root.children.values()]
+            policy_percents = [f'{(self.root.child_policies[int(move)] * 100):.2f}%' for move in self.root.children.keys()]
+            prints = list(zip(moves, [child.visits for child in self.root.children.values()], expected_values, policy_percents))
             prints.sort(key=lambda p: p[1], reverse=True)
             print(prints)
         if temperature == 0:
