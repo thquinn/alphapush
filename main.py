@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from network import AlphaPushNetwork
 from training import eval_match, generate_training_data
 
-model_prefix = 'model_1M2'
+model_prefix = 'model_320K'
 models = glob.glob(f'{model_prefix}_v*.pt')
 version = 1
 if len(models) > 0:
@@ -25,9 +25,8 @@ else:
 pytorch_total_params = sum(p.numel() for p in net.parameters())
 print(f'{pytorch_total_params} total parameters.')
 loss_fn_value = nn.MSELoss()
-loss_fn_policy = nn.MSELoss()
 loss_policy_weight = 5
-optimizer = torch.optim.SGD(net.parameters(), lr=.02, momentum=0.9)
+optimizer = torch.optim.SGD(net.parameters(), lr=.01, momentum=0.9)
 
 while True:
     # Self-play.
@@ -50,16 +49,16 @@ while True:
             net.train()
             predictions = net(batch_inputs)
             loss_value = loss_fn_value(predictions[:,:1], batch_outputs[:,:1])
-            predicted_policy = predictions[:,1:].masked_fill(policy_masks, float('-inf'))
-            predicted_policy = nn.functional.softmax(predicted_policy, dim=1)
-            prediction_zeroes = (predicted_policy == 0)
-            assert torch.equal(prediction_zeroes, policy_masks)
-            loss_policy = torch.mean(torch.sum(torch.abs(predicted_policy - training_policies), dim=1))
+            predicted_policy = predictions[:,1:].masked_fill(policy_masks, -1e9)
+            predicted_policy = F.log_softmax(predicted_policy, dim=1)
+            loss_policy = F.kl_div(predicted_policy, training_policies, reduction='batchmean')
             loss = loss_value + loss_policy * loss_policy_weight
+            print(f'loss: {loss}, value: {loss_value}, policy: {loss_policy}')
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
-        print('Parameters updated.')
+        torch.save(net, f'{model_prefix}_checkpoint.pt')
+        print('Parameters updated, saved checkpoint.')
 
     # Evaluation.
     old_net = torch.load(f'{model_prefix}_v{version:03}.pt', weights_only=False).cpu()
@@ -70,3 +69,7 @@ while True:
         filename = f'{model_prefix}_v{version:03}.pt'
         print(f'Saving new network {filename}...')
         torch.save(net, filename)
+    else:
+        net = old_net
+        optimizer = torch.optim.SGD(net.parameters(), lr=.01, momentum=0.9)
+        print('Reverting to old network.')

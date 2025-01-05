@@ -230,13 +230,20 @@ class PFState:
         board = np.array(self.board)
         if not self.white_to_move:
             board = np.flip(board)
-        pieces = (board != PFPiece.Empty)
+        pieces = (board != PFPiece.Empty).astype(np.int8)
         color = PFPiece.White if self.white_to_move else PFPiece.Black
         enemy = PFPiece.Black if self.white_to_move else PFPiece.White
         allied_pieces = ((board & color) > 0).astype(np.int8)
         enemy_pieces = ((board & enemy) > 0).astype(np.int8)
-        allied_pushers = ((board & (color | PFPiece.Pusher)) > 0).astype(np.int8)
-        enemy_pushers = ((board & (enemy | PFPiece.Pusher)) > 0).astype(np.int8)
+        allied_pushers = (board == (color | PFPiece.Pusher)).astype(np.int8)
+        enemy_pushers = (board == (enemy | PFPiece.Pusher)).astype(np.int8)
+        if self.winner == PFPiece.Empty:
+            assert pieces.sum() == self.num_pieces
+            if self.num_pieces == 10:
+                assert allied_pieces.sum() == 5
+                assert enemy_pieces.sum() == 5
+                assert allied_pushers.sum() == 3
+                assert enemy_pushers.sum() == 3
          # 26 elements: bitfield of anchor position
         anchor_pos = np.zeros(26, dtype=np.int8)
         if self.anchor_position > -1:

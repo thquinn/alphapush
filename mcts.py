@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 
 class MCTSNode:
-    EXPLORATION = 5
+    EXPLORATION = math.sqrt(2)
 
     parent: 'MCTSNode'
     children: dict[PFMove, 'MCTSNode']
@@ -27,7 +27,7 @@ class MCTSNode:
         return self.total_value / self.visits
     
     def get_upper_bound(self, policy):
-        return self.average_reward() + policy * MCTSNode.EXPLORATION * math.sqrt(self.parent.visits) / (1 + self.visits)
+        return self.average_reward() + math.exp(policy) * MCTSNode.EXPLORATION * math.sqrt(self.parent.visits) / (1 + self.visits)
 
 class MCTS:
     root: MCTSNode
@@ -75,6 +75,7 @@ class MCTS:
         return self.current_node.state.to_tensor()
     
     def receive_network_output(self, output):
+        # Set policy.
         if self.current_node.state.winner == PFPiece.Empty:
             policy = output[1:]
             assert len(policy) == 806
@@ -85,14 +86,8 @@ class MCTS:
                     torch.flip(policy[26:26+26*26], [0]),
                     torch.flip(policy[-26*4:], [0]),
                 ))
-            # Set policy.
-            policy_mask = np.ones(806, dtype=bool)
-            assert len(self.current_node.children) > 0
-            for move in self.current_node.children.keys():
-                policy_mask[int(move)] = False
-            policy = policy.masked_fill(torch.from_numpy(policy_mask), float('-inf'))
-            policy = nn.functional.softmax(policy, dim=0).tolist()
-            self.current_node.child_policies = policy
+                assert len(policy) == 806
+            self.current_node.child_policies = policy.tolist()
         # Backpropagate value up the tree.
         value = output[0].item()
         if self.current_node.state.winner != PFPiece.Empty:
@@ -118,7 +113,7 @@ class MCTS:
         moves = list(self.root.children.keys())
         if debug_print:
             expected_values = [f'{child.average_reward():.2f}' for child in self.root.children.values()]
-            policy_percents = [f'{(self.root.child_policies[int(move)] * 100):.2f}%' for move in self.root.children.keys()]
+            policy_percents = [f'{self.root.child_policies[int(move)]:.2f}' for move in self.root.children.keys()]
             prints = list(zip(moves, [child.visits for child in self.root.children.values()], expected_values, policy_percents))
             prints.sort(key=lambda p: p[1], reverse=True)
             print(prints)

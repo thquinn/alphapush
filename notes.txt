@@ -66,6 +66,14 @@
                 - vs new network 1Mv1: New network won 58 of 100 (58.00%). 100 unique games. Average length 14.31. White won 68/100.
                 - vs new network 1Mv9: New network won 83 of 100 (83.00%). 100 unique games. Average length 17.92. White won 49/100.
         - It's not really vanilla MCTS, since there are no actual rollouts, just zeros. Unlikely to reach winning states at much depth.
+    - self-play is redoing a ton of work. can't we just build a single giant MCTS tree and any node with enough visits can serve as a training example?
+        - would want to explore wider than a typical MCTS search since we're not just looking for winners, but really just any example
+        - therefore we'd want to differentiate between visits made on UCT grounds vs. those just for funsies
+        - we _could_ try to cut out some of the exploitation that hits leaf nodes over and over, but could also just optimize tree traversal
+        - this gets us more policy examples, but what about value?
+            - once we have enough policy examples, we can play those games out normally
+        - thinking about it more: "a ton of work" is not accurate. the high branching factor of the game begs to differ.
+            - but then again, if the policy output is opinionated, we can end up in the same sub-branches. see: our promotion matches containing duplicate games
 - INVESTIGATION: check this position, where 1M_v009 at 20K playouts thinks White's best move is to move the left pusher to the edge on the bottom left:
       . . 
     . . .
@@ -110,17 +118,29 @@
 - 1M2 (same topology)
     - Hoping that the too-wide range of priors was the result of low-playout games which were dominated by policy priors, leading to a self-enforcing cycle.
     - Restarting with 1024 playout training, also fixed the incorrect value prior bug
+        - Generated 6412 training examples in 2790s.
+    - Re: policy logits: in training examples, pushes will always have high logits since they're sometimes the only legal moves. How do we prevent them from beating moves?
+    - Terrible first run: 53%, 30%, 30%, 41%, 34%, 36%. All unique games.
+- 320K
+    - Last run was so disastrous, need to be able to iterate faster
+    - Trying to switch to cross entropy or K1
+    - First eval 46%, policy loss is on the rise. Could still be correct: better value estimates mean better policy to compare against.
+    - Then down to 38%: loss is actually looking better than the start now, but it's seemingly not translating to good play.
+    - Ran on one batch of training data, value and policy loss were indeed both going down. Might be an MCTS bug.
+    - Removed softmax on policy logits in MCTS, using e^x instead, set exploration to the more standard sqrt(2).
+    - Still consistently getting sub 40% with no wins. At least it's reproducible!
+    - Overnight checkpoint performing about the same as 320v1 at the triple black pusher test case
+        - But the slightly different case .....Bww......BWB..W.b..Wb has much worse policy priors. The white version doesn't have this problem.
+    - Found a bug in PFState.to_tensor
+    - Now reverting to old network on promotion match loss
+    - Policy loss is too low
+    - 320K_bad is placing its pieces on the edge
+    - It also has hefty priors for insta-losing moves
+    - Wait... does flipping the policy vector for push moves actually work?
 - TODO
+    - don't flip the board, just the bit vector representations
+    - more profiling
     - parallelize promotion games, include game length cap
-    - using policy logits directly in computing upper bound instead of making a probability distribution: faster, too! Something like e^x.
-    - self-play is redoing a ton of work. can't we just build a single giant MCTS tree and any node with enough visits can serve as a training example?
-        - would want to explore wider than a typical MCTS search since we're not just looking for winners, but really just any example
-        - therefore we'd want to differentiate between visits made on UCT grounds vs. those just for funsies
-        - we _could_ try to cut out some of the exploitation that hits leaf nodes over and over, but could also just optimize tree traversal
-        - this gets us more policy examples, but what about value?
-            - once we have enough policy examples, we can play those games out normally
-        - thinking about it more: "a ton of work" is not accurate. the high branching factor of the game begs to differ.
-            - but then again, if the policy output is opinionated, we can end up in the same sub-branches. see: our promotion matches containing duplicate games
     - seeing anecdotal evidence that the training values should incorporate the MCTS result, not just the game result
     - try debugging and tuning hyperparameters on an even smaller network and game board
     - some kind of "curriculum": start later into piece placement?
