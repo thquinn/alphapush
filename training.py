@@ -3,6 +3,7 @@ import time
 import torch
 import torch.nn as nn
 from mcts import MCTS
+from network import NullNet
 from pushfight import PFPiece, PFState
 
 def generate_training_data(net, min_training_items, evals_per_position=512, parallelism=1):
@@ -23,11 +24,14 @@ def generate_training_data(net, min_training_items, evals_per_position=512, para
             # Gather input vectors from all MCTS instances.
             for mcts in mctses:
                 mcts.select_and_expand()
-            input_tensor = torch.stack([mcts.get_current_state_tensor() for mcts in mctses])
             # Get inferences on all active positions, update MCTS instances.
-            output = net.forward(input_tensor)
+            if isinstance(net, NullNet):
+                output = None
+            else:
+                input_tensor = torch.stack([mcts.get_current_state_tensor() for mcts in mctses])
+                output = net.forward(input_tensor)
             for i, mcts in enumerate(mctses):
-                mcts.receive_network_output(output[i])
+                mcts.receive_network_output(output[i] if output else None)
         for mcts in mctses:
             mcts.values.append(1 if mcts.root.state.white_to_move else -1)
             mcts.policies.append(mcts.to_policy_tensor())
@@ -46,6 +50,8 @@ def generate_training_data(net, min_training_items, evals_per_position=512, para
     return training_inputs, training_outputs
 
 def eval_match(old_net, new_net, games=100, evals_per_position=512, verbose=False):
+    old_net.eval()
+    new_net.eval()
     new_wins = 0
     old_white_wins = 0
     new_white_wins = 0

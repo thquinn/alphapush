@@ -136,7 +136,13 @@
     - Policy loss is too low
     - 320K_bad is placing its pieces on the edge
     - It also has hefty priors for insta-losing moves
-    - Wait... does flipping the policy vector for push moves actually work?
+        - These priors persist even after flipping colors, suggesting that flipping isn't to blame. Testing anyway.
+    - Wait... does flipping the policy vector for push moves actually work? It should, given the (up, left, right, down) order.
+    - Got rid of board flipping: no reason for the network to learn that your own pieces are usually at the top.
+    - Maybe failing to find a v2 network is expected behavior: a close-to-zero network is unbiased no-rollout MCTS, lets win values control the entire search
+    - We should generate training data from NullNet until the network is sufficiently improved to make the slowdown worth it
+    - Profiled NullNet generation: large percentage of time spent just in PFMove.place calling cls(...)?
+        - Current: Generated 6422 training examples in 416s.
 - TODO
     - don't flip the board, just the bit vector representations
     - more profiling

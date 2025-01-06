@@ -30,3 +30,9 @@ class AlphaPushNetwork(nn.Module):
         value = self.value_activation(features[0:1])
         policy = features[1:]
         return torch.cat((value, policy))
+
+class NullNet:
+    def forward(self, _):
+        return None
+    def eval(self):
+        pass

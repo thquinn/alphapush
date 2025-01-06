@@ -28,6 +28,17 @@ class MCTSNode:
     
     def get_upper_bound(self, policy):
         return self.average_reward() + math.exp(policy) * MCTSNode.EXPLORATION * math.sqrt(self.parent.visits) / (1 + self.visits)
+    
+    def debug_print(self, depth=1, current_depth=1, top_n=3):
+        moves = [move for move in self.children if self.children[move] is not None]
+        expected_values = [f'{self.children[move].average_reward():.2f}v' for move in moves]
+        policy_percents = [f'{self.child_policies[int(move)]:.2f}p' for move in moves]
+        prints = list(zip(moves, [self.children[move].visits for move in moves], expected_values, policy_percents))
+        prints.sort(key=lambda p: p[1], reverse=True)
+        for i in range(min(top_n, len(prints))):
+            print(f'{'  ' * (current_depth - 1)}{prints[i]}')
+            if current_depth < depth:
+                self.children[prints[i][0]].debug_print(depth, current_depth + 1, top_n)
 
 class MCTS:
     root: MCTSNode
@@ -74,22 +85,18 @@ class MCTS:
     def get_current_state_tensor(self):
         return self.current_node.state.to_tensor()
     
+    zero_policy = [0] * 806
     def receive_network_output(self, output):
         # Set policy.
         if self.current_node.state.winner == PFPiece.Empty:
-            policy = output[1:]
-            assert len(policy) == 806
-            if not self.current_node.state.white_to_move:
-                # The network saw the board in reverse order, so now we reverse each component of the network output.
-                policy = torch.cat((
-                    torch.flip(policy[:26], [0]),
-                    torch.flip(policy[26:26+26*26], [0]),
-                    torch.flip(policy[-26*4:], [0]),
-                ))
+            if output is None:
+                self.current_node.child_policies = self.zero_policy
+            else:
+                policy = output[1:]
                 assert len(policy) == 806
-            self.current_node.child_policies = policy.tolist()
+                self.current_node.child_policies = policy.tolist()
         # Backpropagate value up the tree.
-        value = output[0].item()
+        value = 0 if output is None else output[0].item()
         if self.current_node.state.winner != PFPiece.Empty:
             value = 1 if self.current_node.state.winner == PFPiece.White else -1
         while self.current_node is not None:
@@ -108,15 +115,11 @@ class MCTS:
                 policy[int(move)] = child.visits / child_sum
         return policy
     
-    def advance_root(self, temperature=1, debug_print=False):
+    def advance_root(self, temperature=1, print_depth=0):
         self.history.append(self.root.state)
         moves = list(self.root.children.keys())
-        if debug_print:
-            expected_values = [f'{child.average_reward():.2f}' for child in self.root.children.values()]
-            policy_percents = [f'{self.root.child_policies[int(move)]:.2f}' for move in self.root.children.keys()]
-            prints = list(zip(moves, [child.visits for child in self.root.children.values()], expected_values, policy_percents))
-            prints.sort(key=lambda p: p[1], reverse=True)
-            print(prints)
+        if print_depth > 0:
+            self.root.debug_print(print_depth)
         if temperature == 0:
             move = max(self.root.children, key=lambda k: self.root.children[k].visits)
         else:
@@ -125,7 +128,7 @@ class MCTS:
                 weights = weights ** (1 / temperature)
                 weights /= weights.sum()
             move = np.random.choice(moves, p=weights)
-        if debug_print:
+        if print_depth > 0:
             print(move)
         self.root = self.root.children[move]
         self.root.parent = None

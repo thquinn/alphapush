@@ -228,8 +228,6 @@ class PFState:
         # 26 elements: bitfield of all allied pushers
         # 26 elements: bitfield of all enemy pushers
         board = np.array(self.board)
-        if not self.white_to_move:
-            board = np.flip(board)
         pieces = (board != PFPiece.Empty).astype(np.int8)
         color = PFPiece.White if self.white_to_move else PFPiece.Black
         enemy = PFPiece.Black if self.white_to_move else PFPiece.White

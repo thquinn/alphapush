@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from network import AlphaPushNetwork
+from network import AlphaPushNetwork, NullNet
 from training import eval_match, generate_training_data
 
 model_prefix = 'model_320K'
@@ -24,9 +24,10 @@ else:
     print(f'Created fresh model at {filename}.')
 pytorch_total_params = sum(p.numel() for p in net.parameters())
 print(f'{pytorch_total_params} total parameters.')
+training_net = NullNet()
 loss_fn_value = nn.MSELoss()
-loss_policy_weight = 5
-optimizer = torch.optim.SGD(net.parameters(), lr=.01, momentum=0.9)
+loss_policy_weight = 0.5
+optimizer = torch.optim.SGD(net.parameters(), lr=.1)
 
 while True:
     # Self-play.
@@ -38,7 +39,7 @@ while True:
         examples_this_pass = examples_per_iteration / generation_passes
         print(f'Starting generation pass {generation_pass + 1} of {generation_passes}.')
         start_time = time.time()
-        training_inputs, training_outputs = generate_training_data(net, min_training_items=examples_this_pass, parallelism=generation_parallelism)
+        training_inputs, training_outputs = generate_training_data(training_net, min_training_items=examples_this_pass, parallelism=generation_parallelism)
         print(f'Generated {len(training_inputs)} training examples in {math.floor(time.time() - start_time)}s.')
         num_batches = len(training_inputs) // batch_size
         for i in range(0, num_batches * batch_size, batch_size):
@@ -50,8 +51,7 @@ while True:
             predictions = net(batch_inputs)
             loss_value = loss_fn_value(predictions[:,:1], batch_outputs[:,:1])
             predicted_policy = predictions[:,1:].masked_fill(policy_masks, -1e9)
-            predicted_policy = F.log_softmax(predicted_policy, dim=1)
-            loss_policy = F.kl_div(predicted_policy, training_policies, reduction='batchmean')
+            loss_policy = F.cross_entropy(predicted_policy, training_policies)
             loss = loss_value + loss_policy * loss_policy_weight
             print(f'loss: {loss}, value: {loss_value}, policy: {loss_policy}')
             loss.backward()
@@ -59,6 +59,8 @@ while True:
             optimizer.zero_grad()
         torch.save(net, f'{model_prefix}_checkpoint.pt')
         print('Parameters updated, saved checkpoint.')
+        break
+    break
 
     # Evaluation.
     old_net = torch.load(f'{model_prefix}_v{version:03}.pt', weights_only=False).cpu()
@@ -69,7 +71,3 @@ while True:
         filename = f'{model_prefix}_v{version:03}.pt'
         print(f'Saving new network {filename}...')
         torch.save(net, filename)
-    else:
-        net = old_net
-        optimizer = torch.optim.SGD(net.parameters(), lr=.01, momentum=0.9)
-        print('Reverting to old network.')
