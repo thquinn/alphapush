@@ -141,11 +141,33 @@
     - Got rid of board flipping: no reason for the network to learn that your own pieces are usually at the top.
     - Maybe failing to find a v2 network is expected behavior: a close-to-zero network is unbiased no-rollout MCTS, lets win values control the entire search
     - We should generate training data from NullNet until the network is sufficiently improved to make the slowdown worth it
-    - Profiled NullNet generation: large percentage of time spent just in PFMove.place calling cls(...)?
+    - Profiled NullNet generation: large percentage of time spent just in PFMove.place() calling cls(...)?
         - Current: Generated 6422 training examples in 416s.
+        - Trying to use __slots__, slots=True, NamedTuple, etc was all slower somehow
+    - Reading the AlphaZero paper:
+        - their self-play games are from the latest network
+        - training was learning rate 0.2->0.02->0.002->0.0002, 700K batches of 4096 examples @800 playouts
+        - self-play was done on TPUs
+        - root nodes added Dirichlet noise to policy priors
+    - Even after 6 low-percent "wins" against previous networks, 320Kv7 is only 50% against NullNet
+    - 320Kv7 @4k playouts as Black after a good placement from White wants to place its pieces at 25, 24, and 23, with negative priors, but high expected value
+    - @512 playouts, training games are just very poor quality from NullNet, and in general. we need ~2k before we see even a glimmer of intelligence.
+        - temp = 1 for training games is just wrong: we should pick the highest visit count much more often
+        - lesson: actually inspect training data
+        - Updated to 2048 playouts (still using NullNet to train): Generated 6409 training examples in 1626s.
+    - Reading the KataGo paper:
+        - They might just be using policy priors instead of e^x? And they have exploration at 1.1.
+        - Also Dirichlet noise
+        - Started with a smaller network, retrained each larger network on the same data until it caught up in loss
+        - SGD with 0.9 momentum, batch size 256
+        - "Playout cap randomization": Instead of always running a full MCTS in self-play, 75% of the time they use 1/5 the playouts, but don't use those outcomes as training data.
+            - These fast moves disable noise and minimize exploration
+        - "Forced Playouts and Policy Target Pruning": after N playouts in self-play, continue running until all root children have a minimum visit count
+            - Then, modify the policy target to diminish moves that are still bad after this forced expansion
+        - Their network has another policy head for expected response moves from the opponent, which is only used in self play.
+    - Value loss is still basically not moving even after hundreds of batches. There are enough obvious cases that the net should be able to learn: something bad is happening.
 - TODO
-    - don't flip the board, just the bit vector representations
-    - more profiling
+    - put together a test dataset of mate-in-one states, and make sure a network can learn who's about to win.
     - parallelize promotion games, include game length cap
     - seeing anecdotal evidence that the training values should incorporate the MCTS result, not just the game result
     - try debugging and tuning hyperparameters on an even smaller network and game board

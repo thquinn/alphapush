@@ -6,7 +6,7 @@ from mcts import MCTS
 from network import NullNet
 from pushfight import PFPiece, PFState
 
-def generate_training_data(net, min_training_items, evals_per_position=512, parallelism=1):
+def generate_training_data(net, min_training_items, evals_per_position=2048, parallelism=1):
     net.eval()
     training_inputs = []
     training_outputs = []
@@ -35,7 +35,7 @@ def generate_training_data(net, min_training_items, evals_per_position=512, para
         for mcts in mctses:
             mcts.values.append(1 if mcts.root.state.white_to_move else -1)
             mcts.policies.append(mcts.to_policy_tensor())
-            mcts.advance_root()
+            mcts.advance_root(temperature=0.25)
             if mcts.root.state.winner != PFPiece.Empty:
                 # Construct training outputs.
                 training_values = mcts.values
@@ -43,6 +43,7 @@ def generate_training_data(net, min_training_items, evals_per_position=512, para
                 if mcts.root.state.winner == PFPiece.Black:
                     training_values = [-x for x in training_values]
                 training_inputs.extend([state.to_tensor() for state in mcts.history])
+                assert len(training_values) == len(training_policies)
                 training_outputs.extend([[training_values[i]] + training_policies[i] for i in range(len(training_values))])
                 assert len(training_inputs) == len(training_outputs)
     training_inputs = torch.stack(training_inputs)
@@ -90,5 +91,5 @@ def eval_match(old_net, new_net, games=100, evals_per_position=512, verbose=Fals
             else:
                 old_white_wins += 1
     print(f'Finished {games} {evals_per_position}-eval games in {math.floor(time.time() - start_time)} seconds.')
-    print(f'New network won {new_wins} of {games} ({(new_wins / games * 100):.2f}%). {len(game_hashes)} unique games. Average length {(total_moves / games):.2f}. New won {new_white_wins}/{games / 2} as white, old won {old_white_wins}/{games / 2}.')
+    print(f'New network won {new_wins} of {games} ({(new_wins / games * 100):.2f}%). {len(game_hashes)} unique games. Average length {(total_moves / games):.2f}. New won {new_white_wins}/{games // 2} as white, old won {old_white_wins}/{games // 2}.')
     return new_wins / games >= .55

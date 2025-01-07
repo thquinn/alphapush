@@ -14,7 +14,7 @@ models = glob.glob(f'{model_prefix}_v*.pt')
 version = 1
 if len(models) > 0:
     models.sort()
-    net = torch.load(models[-1], weights_only=False).cpu()
+    net = torch.load(f'{model_prefix}_checkpoint.pt', weights_only=False).cpu() # torch.load(models[-1], weights_only=False).cpu()
     version = int(models[-1][-6:-3])
     print(f'Loaded model version {version} from {models[-1]}.')
 else:
@@ -27,7 +27,7 @@ print(f'{pytorch_total_params} total parameters.')
 training_net = NullNet()
 loss_fn_value = nn.MSELoss()
 loss_policy_weight = 0.5
-optimizer = torch.optim.SGD(net.parameters(), lr=.1)
+optimizer = torch.optim.SGD(net.parameters(), lr=0.2, momentum=0.9)
 
 while True:
     # Self-play.
@@ -42,6 +42,9 @@ while True:
         training_inputs, training_outputs = generate_training_data(training_net, min_training_items=examples_this_pass, parallelism=generation_parallelism)
         print(f'Generated {len(training_inputs)} training examples in {math.floor(time.time() - start_time)}s.')
         num_batches = len(training_inputs) // batch_size
+        total_loss = 0
+        total_value_loss = 0
+        total_policy_loss = 0
         for i in range(0, num_batches * batch_size, batch_size):
             batch_inputs = training_inputs[i:i+batch_size]
             batch_outputs = training_outputs[i:i+batch_size]
@@ -53,14 +56,14 @@ while True:
             predicted_policy = predictions[:,1:].masked_fill(policy_masks, -1e9)
             loss_policy = F.cross_entropy(predicted_policy, training_policies)
             loss = loss_value + loss_policy * loss_policy_weight
-            print(f'loss: {loss}, value: {loss_value}, policy: {loss_policy}')
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
+            total_loss += loss
+            total_value_loss += loss_value
+            total_policy_loss += loss_policy
+        print(f'Average loss: {(total_loss / num_batches):.3f}, value: {(total_value_loss / num_batches):.3f}, policy: {(total_policy_loss / num_batches):.3f}')
         torch.save(net, f'{model_prefix}_checkpoint.pt')
-        print('Parameters updated, saved checkpoint.')
-        break
-    break
 
     # Evaluation.
     old_net = torch.load(f'{model_prefix}_v{version:03}.pt', weights_only=False).cpu()

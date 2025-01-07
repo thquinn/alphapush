@@ -272,7 +272,7 @@ class PFState:
             'placing rounds' if self.num_pieces < 10 and self.num_pieces % 5 >= 3 else None,
             f'{self.moves_left} moves left' if self.num_pieces == 10 else None,
         ] if s])
-        return '\n'.join([board_string, status_string])
+        return '\n'.join([board_string, status_string, ''])
     def __str__(self): return self.__repr__()
     
     def __hash__(self):

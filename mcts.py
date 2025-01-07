@@ -29,7 +29,7 @@ class MCTSNode:
     def get_upper_bound(self, policy):
         return self.average_reward() + math.exp(policy) * MCTSNode.EXPLORATION * math.sqrt(self.parent.visits) / (1 + self.visits)
     
-    def debug_print(self, depth=1, current_depth=1, top_n=3):
+    def debug_print(self, depth=1, current_depth=1, top_n=300):
         moves = [move for move in self.children if self.children[move] is not None]
         expected_values = [f'{self.children[move].average_reward():.2f}v' for move in moves]
         policy_percents = [f'{self.child_policies[int(move)]:.2f}p' for move in moves]
@@ -64,7 +64,7 @@ class MCTS:
             output = net.forward(input_tensor)
             self.receive_network_output(output)
             evals += 1
-        self.advance_root(temperature=.25)
+        self.advance_root(temperature=0.1)
     
     def select_and_expand(self):
         while self.current_node.state.winner == PFPiece.Empty and all(self.current_node.children.values()):
@@ -129,7 +129,7 @@ class MCTS:
                 weights /= weights.sum()
             move = np.random.choice(moves, p=weights)
         if print_depth > 0:
-            print(move)
+            print(f'{move}: {self.root.children[move].visits}')
         self.root = self.root.children[move]
         self.root.parent = None
         self.current_node = self.root
