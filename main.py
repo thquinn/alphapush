@@ -14,7 +14,7 @@ models = glob.glob(f'{model_prefix}_v*.pt')
 version = 1
 if len(models) > 0:
     models.sort()
-    net = torch.load(f'{model_prefix}_checkpoint.pt', weights_only=False).cpu() # torch.load(models[-1], weights_only=False).cpu()
+    net = torch.load(models[-1], weights_only=False).cpu()
     version = int(models[-1][-6:-3])
     print(f'Loaded model version {version} from {models[-1]}.')
 else:
@@ -26,7 +26,7 @@ pytorch_total_params = sum(p.numel() for p in net.parameters())
 print(f'{pytorch_total_params} total parameters.')
 training_net = NullNet()
 loss_fn_value = nn.MSELoss()
-loss_policy_weight = 0.5
+loss_policy_weight = 0.25
 optimizer = torch.optim.SGD(net.parameters(), lr=0.2, momentum=0.9)
 
 while True:

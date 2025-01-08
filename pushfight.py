@@ -175,6 +175,20 @@ class PFState:
             if self.board[index] == PFPiece.Empty:
                 return True
     
+    def get_move_winner(self, move: PFMove):
+        if move.pushFromIndex == -1:
+            return PFPiece.Empty
+        index = move.pushFromIndex
+        last_piece_color = None
+        while True:
+            index = PFState.NEIGHBORS[index][move.pushDirection.value]
+            if index == PFState.VOID:
+                assert last_piece_color is not None
+                return PFPiece.Black if last_piece_color == PFPiece.White else PFPiece.White
+            if self.board[index] == PFPiece.Empty:
+                return PFPiece.Empty
+            last_piece_color = PFPiece.White if self.board[index] & PFPiece.White else PFPiece.Black
+    
     def move(self, move: PFMove, set_moves=True):
         if move.placeIndex != -1:
             assert self.num_pieces < 10

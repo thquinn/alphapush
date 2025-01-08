@@ -139,6 +139,7 @@
         - These priors persist even after flipping colors, suggesting that flipping isn't to blame. Testing anyway.
     - Wait... does flipping the policy vector for push moves actually work? It should, given the (up, left, right, down) order.
     - Got rid of board flipping: no reason for the network to learn that your own pieces are usually at the top.
+        - Maybe actively worse: flipping removes many symmetries, which AZ adds intentionally
     - Maybe failing to find a v2 network is expected behavior: a close-to-zero network is unbiased no-rollout MCTS, lets win values control the entire search
     - We should generate training data from NullNet until the network is sufficiently improved to make the slowdown worth it
     - Profiled NullNet generation: large percentage of time spent just in PFMove.place() calling cls(...)?
@@ -166,9 +167,32 @@
             - Then, modify the policy target to diminish moves that are still bad after this forced expansion
         - Their network has another policy head for expected response moves from the opponent, which is only used in self play.
     - Value loss is still basically not moving even after hundreds of batches. There are enough obvious cases that the net should be able to learn: something bad is happening.
+        - Okay, here's a problem: when generating examples, I'm treating the value output as "did the current player win (1), or lose (-1)?"
+        - But in MCTS, it's "did Black win (-1), or White win (1)?"
+        - Obviously we need to treat these consistently, and besides, the network doesn't even know what "White" and "Black" are.
+- Testing mate-in-one-detection net on 1M examples (about 1 in 7 are mates in one)
+    - SGD is still faster than Adam
+    - Starting to seem like it's pretty inefficient running backprop on each training example just once
+        - KataGo also keeps a "window" of examples from prior nets around.
+            - The farther into training, the larger the window can be since even older models + playouts are stronger than the current net.
+            - Alpha_Go_ Zero used a simpler window of just the most recent 500K games.
+    - 117K batch1024 lr0.2: 0.0004 after ~40 epochs
+        - lr decay .99 ** epoch: .00033 after 60 epochs
+        X batch128: .00026 after 50 epochs, but twice as slow as batch1024. reverting...
+        X I was missing a ReLU after the first layer (also in the "production" net) but adding it isn't having the effect I'd have imagined
+        - batchnorm (up to 119K params): .00026 after 25 epochs, .0002 after 40, .00018 after 60
+            - batchnorm theoretically goes before nonlinearity, but it's working better for me after, which some have observed: yet another hyperparameter
+        X 3 more middle layers (up to 152K params): worse than the previous run
+        X removing the last layer (91K params): quick to .0025 after 20 epochs, then starts flailing
+        - shrink and restructure (64K params): .00023 at 40 epochs, sticks
+        X try a huge run (811K params, batch128): overfit...? about the same as previous bests
+        X training at half precision brought loss up by about 25%, not too bad, but no more performant
+- Testing separate network trained on NullNet dataset
+    - Generating ~1K examples / 80sec
+    - 20K examples can get test loss from 1.63 to 1.51
+    - BatchNorm1d is doing something screwy, making loss explode to infinity. Could just be that the dataset is too small...?
+
 - TODO
-    - put together a test dataset of mate-in-one states, and make sure a network can learn who's about to win.
-    - parallelize promotion games, include game length cap
+    - parallelize promotion games
     - seeing anecdotal evidence that the training values should incorporate the MCTS result, not just the game result
-    - try debugging and tuning hyperparameters on an even smaller network and game board
-    - some kind of "curriculum": start later into piece placement?
+    - "curriculum" based on high-loss game states

@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 
 class MCTSNode:
-    EXPLORATION = math.sqrt(2)
+    EXPLORATION = 1.1
 
     parent: 'MCTSNode'
     children: dict[PFMove, 'MCTSNode']
@@ -29,7 +29,7 @@ class MCTSNode:
     def get_upper_bound(self, policy):
         return self.average_reward() + math.exp(policy) * MCTSNode.EXPLORATION * math.sqrt(self.parent.visits) / (1 + self.visits)
     
-    def debug_print(self, depth=1, current_depth=1, top_n=300):
+    def debug_print(self, depth=1, current_depth=1, top_n=3):
         moves = [move for move in self.children if self.children[move] is not None]
         expected_values = [f'{self.children[move].average_reward():.2f}v' for move in moves]
         policy_percents = [f'{self.child_policies[int(move)]:.2f}p' for move in moves]
@@ -39,6 +39,8 @@ class MCTSNode:
             print(f'{'  ' * (current_depth - 1)}{prints[i]}')
             if current_depth < depth:
                 self.children[prints[i][0]].debug_print(depth, current_depth + 1, top_n)
+        print(f'{'  ' * (current_depth - 1)}...')
+        print(f'{'  ' * (current_depth - 1)}{prints[-1]}')
 
 class MCTS:
     root: MCTSNode
@@ -56,7 +58,7 @@ class MCTS:
         self.values = []
         self.policies = []
     
-    def run_with_net(self, net, min_evals):
+    def run_with_net(self, net, min_evals, advance=True):
         evals = 0
         while evals < min_evals or not all(self.root.children.values()):
             self.select_and_expand()
@@ -64,7 +66,8 @@ class MCTS:
             output = net.forward(input_tensor)
             self.receive_network_output(output)
             evals += 1
-        self.advance_root(temperature=0.1)
+        if advance:
+            self.advance_root(temperature=0.1)
     
     def select_and_expand(self):
         while self.current_node.state.winner == PFPiece.Empty and all(self.current_node.children.values()):
@@ -97,12 +100,15 @@ class MCTS:
                 self.current_node.child_policies = policy.tolist()
         # Backpropagate value up the tree.
         value = 0 if output is None else output[0].item()
+        if self.current_node.parent:
+            current_white_to_move = self.current_node.parent.state.white_to_move
+            current_player = PFPiece.White if current_white_to_move else PFPiece.Black
         if self.current_node.state.winner != PFPiece.Empty:
-            value = 1 if self.current_node.state.winner == PFPiece.White else -1
+            value = 1 if (self.current_node.state.winner == current_player) else -1
         while self.current_node is not None:
             self.current_node.visits += 1
             if self.current_node.parent:
-                self.current_node.total_value += value if self.current_node.parent.state.white_to_move else -value
+                self.current_node.total_value += value if (self.current_node.parent.state.white_to_move == current_white_to_move) else -value
             self.current_node = self.current_node.parent
         self.current_node = self.root
     
@@ -129,7 +135,7 @@ class MCTS:
                 weights /= weights.sum()
             move = np.random.choice(moves, p=weights)
         if print_depth > 0:
-            print(f'{move}: {self.root.children[move].visits}')
+            print(f'Chose {move} with {self.root.children[move].visits} visits.\n')
         self.root = self.root.children[move]
         self.root.parent = None
         self.current_node = self.root
