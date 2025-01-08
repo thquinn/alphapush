@@ -20,6 +20,7 @@ def worker(q):
         print(f"Worker {os.getpid()} failed with error: {e}")
         raise e
 
+@torch.no_grad()
 def generate_nullnet_data(amount=int(1e6)):
     start_time = time.time()
     with Manager() as manager:
@@ -45,7 +46,21 @@ def generate_nullnet_data(amount=int(1e6)):
             pool.terminate()
             print(f'Done!')
 
+@torch.no_grad()
+def combine_sets():
+    nullset1 = torch.load('nullset_20K.tnsr', weights_only=False)
+    X1 = nullset1['X'].cuda()
+    Y1 = nullset1['Y'].cuda()
+    nullset2 = torch.load('nullset_1736308553.tnsr', weights_only=False)
+    X2 = nullset2['X'].cuda()
+    Y2 = nullset2['Y'].cuda()
+    X = torch.cat([X1, X2], dim=0)
+    Y = torch.cat([Y1, Y2], dim=0)
+    print(X.shape, Y.shape)
+    torch.save({'X': X, 'Y': Y}, 'nullset_100K.tnsr')
+
 net = NullNet()
+@torch.no_grad()
 def play_nullnet_game():
     state = PFState()
     for _ in range(8):

@@ -226,7 +226,7 @@ class PFState:
         if len(self.moves) == 0:
             self.winner = PFPiece.Black if self.white_to_move else PFPiece.White
     
-    @torch.no_grad
+    @torch.no_grad()
     def to_tensor(self):
         # 3 elements: one-hot, are we [placing pushers], [placing round pieces], or [playing the game]?
         phase = np.zeros(3, dtype=np.int8)

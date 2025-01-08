@@ -187,10 +187,13 @@
         - shrink and restructure (64K params): .00023 at 40 epochs, sticks
         X try a huge run (811K params, batch128): overfit...? about the same as previous bests
         X training at half precision brought loss up by about 25%, not too bad, but no more performant
-- Testing separate network trained on NullNet dataset
+- Testing separate network trained on NullNet dataset: 267K params
     - Generating ~1K examples / 80sec
     - 20K examples can get test loss from 1.63 to 1.51
-    - BatchNorm1d is doing something screwy, making loss explode to infinity. Could just be that the dataset is too small...?
+    - batchnorm is doing something screwy, making loss explode to infinity. Could just be that the dataset is too small...?
+    - 100K examples, loss down to 1.36, but it still rebounds and starts increasing to 1.7+ after ~15 epochs: probably overfitting
+        - Train and test loss descent together, then start to diverge as train loss plummets to 1.10
+        - batchnorm seems to make it even better at overfitting, train loss 0.82 and falling while test loss > 1.6. At least test policy loss is decreasing! (2.8 -> 2.7)
 
 - TODO
     - parallelize promotion games

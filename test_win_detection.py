@@ -30,7 +30,7 @@ def build_win_in_one_dataset():
             state.move(random.choice(state.moves))
         if len(inputs) % BATCH_SIZE < old_len % BATCH_SIZE:
             print(f'Saving with {len(inputs)} examples ({(wins * 100 / len(inputs)):.2f}% wins).')
-            torch.save({'X': torch.stack(inputs), 'Y': torch.tensor(outputs).unsqueeze(1).float()}, 'winset.pt')
+            torch.save({'X': torch.stack(inputs), 'Y': torch.tensor(outputs).unsqueeze(1).float()}, 'winset.tnsr')
     print('Done.')
 
 class ValueOnlyNetwork(nn.Module):
@@ -60,7 +60,7 @@ def test_value_only_network():
     pytorch_total_params = sum(p.numel() for p in net.parameters())
     print(f'Created network with {pytorch_total_params} total parameters.')
     print('Loading dataset...')
-    winset = torch.load('winset.pt', weights_only=False)
+    winset = torch.load('winset.tnsr', weights_only=False)
     X = winset['X'].cuda()
     Y = winset['Y'].cuda()
     print(f'Loaded dataset. Inputs are of shape {X.shape}, outputs of shape {Y.shape}.')

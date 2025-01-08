@@ -16,7 +16,7 @@ class NullTrainingNetwork(nn.Module):
                 for item in (
                     nn.Linear(hidden_layers[i], hidden_layers[i + 1]),
                     nn.ReLU(),
-                    # nn.BatchNorm1d(hidden_layers[i + 1]),
+                    nn.BatchNorm1d(hidden_layers[i + 1]),
                 )
             ],
             nn.Linear(hidden_layers[-1], output_size),
@@ -31,12 +31,14 @@ class NullTrainingNetwork(nn.Module):
 
 loss_fn_value = nn.MSELoss()
 loss_policy_weight = 0.25
-def get_loss(predictions, batch_output):
+def get_loss(predictions, batch_output, debug_print=False):
     training_policies = batch_output[:,1:]
     policy_masks = (training_policies == 0)
     loss_value = loss_fn_value(predictions[:,:1], batch_output[:,:1])
     predicted_policy = predictions[:,1:].masked_fill(policy_masks, -1e9)
     loss_policy = F.cross_entropy(predicted_policy, training_policies)
+    if debug_print:
+        print(f'value loss: {loss_value}, policy loss: {loss_policy}')
     return loss_value + loss_policy * loss_policy_weight
     
 def test_null_training():
@@ -44,7 +46,7 @@ def test_null_training():
     pytorch_total_params = sum(p.numel() for p in net.parameters())
     print(f'Created network with {pytorch_total_params} total parameters.')
     print('Loading dataset...')
-    nullset = torch.load('nullset_20K.tnsr', weights_only=False)
+    nullset = torch.load('nullset_100K.tnsr', weights_only=False)
     X = nullset['X'].cuda()
     Y = nullset['Y'].cuda()
     print(f'Loaded dataset. Inputs are of shape {X.shape}, outputs of shape {Y.shape}.')
@@ -57,10 +59,11 @@ def test_null_training():
 
     # Measure starting loss.
     net.eval()
-    loss = get_loss(net(X_test), Y_test)
+    loss = get_loss(net(X_test), Y_test, debug_print=True)
     print(f'Starting test loss: {loss}.')
     # Train.
     optimizer = torch.optim.SGD(net.parameters(), lr=0.01)
+    # torch.autograd.set_detect_anomaly(True)
     for epoch in range(1000):
         print(f'Starting epoch {epoch + 1} of 1000.')
         net.train()
@@ -73,7 +76,8 @@ def test_null_training():
             optimizer.step()
         elapsed_time = time.time() - start_time
         net.eval()
-        loss = get_loss(net(X_test), Y_test)
-        print(f'Finished in {elapsed_time:.1f}s. Test loss: {loss}.')
+        train_loss = get_loss(net(X_train), Y_train, debug_print=False)
+        test_loss = get_loss(net(X_test), Y_test, debug_print=True)
+        print(f'Finished in {elapsed_time:.1f}s. Train loss: {train_loss}. Test loss: {test_loss}.')
 
 test_null_training()
