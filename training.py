@@ -5,13 +5,14 @@ import torch.nn as nn
 from mcts import MCTS
 from network import NullNet
 from pushfight import PFPiece, PFState
+from test_null_training import NullTrainingNetwork
 
 def generate_training_data(net, min_training_items, evals_per_position=2048, parallelism=1):
     net.eval()
     training_inputs = []
     training_outputs = []
     mctses = [None] * parallelism
-    root_output = net.forward(PFState().to_tensor())
+    root_output = net.forward(PFState().to_tensor().unsqueeze(0))
     while len(training_outputs) < min_training_items:
         for i, mcts in enumerate(mctses):
             if mcts is None or mcts.root.state.winner != PFPiece.Empty or len(mcts.history) > 200:
@@ -31,7 +32,7 @@ def generate_training_data(net, min_training_items, evals_per_position=2048, par
                 input_tensor = torch.stack([mcts.get_current_state_tensor() for mcts in mctses])
                 output = net.forward(input_tensor)
             for i, mcts in enumerate(mctses):
-                mcts.receive_network_output(output[i] if output else None)
+                mcts.receive_network_output(output[i] if output is not None else None)
         for mcts in mctses:
             mcts.values.append(1 if mcts.root.state.white_to_move else -1)
             mcts.policies.append(mcts.to_policy_tensor())
@@ -70,7 +71,7 @@ def eval_match(old_net, new_net, games=100, evals_per_position=512, verbose=Fals
             state_hashes.append(hash(state))
             total_moves += 1
             net = white if state.white_to_move else black
-            root_output = net.forward(state.to_tensor())
+            root_output = net.forward(state.to_tensor().unsqueeze(0))
             mcts = MCTS(state, root_output)
             mcts.run_with_net(net, evals_per_position)
             state = mcts.root.state
@@ -93,3 +94,23 @@ def eval_match(old_net, new_net, games=100, evals_per_position=512, verbose=Fals
     print(f'Finished {games} {evals_per_position}-eval games in {math.floor(time.time() - start_time)} seconds.')
     print(f'New network won {new_wins} of {games} ({(new_wins / games * 100):.2f}%). {len(game_hashes)} unique games. Average length {(total_moves / games):.2f}. New won {new_white_wins}/{games // 2} as white, old won {old_white_wins}/{games // 2}.')
     return new_wins / games >= .55
+
+def generate_training_dataset():
+    model_name = '270K_v000'
+    net = torch.load(f'model_{model_name}.pt', weights_only=False).cpu()
+    inputs = []
+    outputs = []
+    start_time = time.time()
+    print('Starting dataset generation.')
+    for _ in range(50):
+        batch_time = time.time()
+        input, output = generate_training_data(net, min_training_items=100, parallelism=64)
+        print(f'Generated {input.shape[0]} examples in {(time.time() - batch_time):.1f} seconds. Saving...')
+        inputs.append(input)
+        outputs.append(output)
+        torch.save({'X': torch.cat(inputs, dim=0), 'Y': torch.cat(outputs, dim=0)}, f'dataset_{model_name}_{math.floor(start_time)}.tnsr')
+        print('Saved.')
+        return
+
+if __name__ == '__main__':
+    generate_training_dataset()

@@ -4,13 +4,14 @@ import torch.nn as nn
 class AlphaPushNetwork(nn.Module):
     def __init__(self):
         super(AlphaPushNetwork, self).__init__()
+        # input vector: see PFState.to_tensor
+        input_size = 160
         # output vector:
         #   [1]: value: 1 if the current player is winning, -1 if the current player is losing
         #   [26]: (policy) place a piece here
         #   [26*26]: (policy) move a piece from space to space
         #   [26*4]: (policy) from space A, push in direction B
         output_size = 1 + 26 + 26*26 + 26*4 # 807
-        input_size = 160
         hidden_layers = [input_size, 256, 104, 104, 104, 256]
         self.model = nn.Sequential(
             *[

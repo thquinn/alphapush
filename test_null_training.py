@@ -17,6 +17,7 @@ class NullTrainingNetwork(nn.Module):
                     nn.Linear(hidden_layers[i], hidden_layers[i + 1]),
                     nn.ReLU(),
                     nn.BatchNorm1d(hidden_layers[i + 1]),
+                    nn.Dropout(0.2),
                 )
             ],
             nn.Linear(hidden_layers[-1], output_size),
@@ -43,17 +44,18 @@ def get_loss(predictions, batch_output, debug_print=False):
     
 def test_null_training():
     net = NullTrainingNetwork().cuda()
+    # net = torch.load('model_1M_v009.pt', weights_only=False).cuda()
     pytorch_total_params = sum(p.numel() for p in net.parameters())
     print(f'Created network with {pytorch_total_params} total parameters.')
     print('Loading dataset...')
-    nullset = torch.load('nullset_100K.tnsr', weights_only=False)
+    nullset = torch.load('nullset_500K.tnsr', weights_only=False)
     X = nullset['X'].cuda()
     Y = nullset['Y'].cuda()
     print(f'Loaded dataset. Inputs are of shape {X.shape}, outputs of shape {Y.shape}.')
     split = math.floor(len(X) * 0.9)
     X_train = X[:split,:]
     Y_train = Y[:split,:]
-    training_batches = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, Y_train), batch_size=64, shuffle=True)
+    training_batches = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, Y_train), batch_size=256, shuffle=True)
     X_test = X[split:,:]
     Y_test = Y[split:,:]
 
@@ -62,7 +64,7 @@ def test_null_training():
     loss = get_loss(net(X_test), Y_test, debug_print=True)
     print(f'Starting test loss: {loss}.')
     # Train.
-    optimizer = torch.optim.SGD(net.parameters(), lr=0.01)
+    optimizer = torch.optim.SGD(net.parameters(), lr=0.02, momentum=0.9)
     # torch.autograd.set_detect_anomaly(True)
     for epoch in range(1000):
         print(f'Starting epoch {epoch + 1} of 1000.')
@@ -76,8 +78,14 @@ def test_null_training():
             optimizer.step()
         elapsed_time = time.time() - start_time
         net.eval()
-        train_loss = get_loss(net(X_train), Y_train, debug_print=False)
-        test_loss = get_loss(net(X_test), Y_test, debug_print=True)
-        print(f'Finished in {elapsed_time:.1f}s. Train loss: {train_loss}. Test loss: {test_loss}.')
+        with torch.no_grad():
+            X_train_pred = net(X_train)
+            X_test_pred = net(X_test)
+            train_loss = get_loss(X_train_pred, Y_train, debug_print=False)
+            test_loss = get_loss(X_test_pred, Y_test, debug_print=True)
+        torch.cuda.empty_cache()
+        # torch.save(net, 'model_270K_v000.pt')
+        print(f'Epoch finished in {elapsed_time:.1f}s. Train loss: {train_loss}. Test loss: {test_loss}.')
 
-test_null_training()
+if __name__ == '__main__':
+    test_null_training()

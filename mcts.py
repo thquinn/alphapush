@@ -39,8 +39,10 @@ class MCTSNode:
             print(f'{'  ' * (current_depth - 1)}{prints[i]}')
             if current_depth < depth:
                 self.children[prints[i][0]].debug_print(depth, current_depth + 1, top_n)
-        print(f'{'  ' * (current_depth - 1)}...')
-        print(f'{'  ' * (current_depth - 1)}{prints[-1]}')
+        if len(prints) > top_n:
+            if len(prints) > top_n + 1:
+                print(f'{'  ' * (current_depth - 1)}...')
+            print(f'{'  ' * (current_depth - 1)}{prints[-1]}')
 
 class MCTS:
     root: MCTSNode
@@ -63,7 +65,7 @@ class MCTS:
         while evals < min_evals or not all(self.root.children.values()):
             self.select_and_expand()
             input_tensor = self.get_current_state_tensor()
-            output = net.forward(input_tensor)
+            output = net.forward(input_tensor.unsqueeze(0))
             self.receive_network_output(output)
             evals += 1
         if advance:
@@ -90,6 +92,8 @@ class MCTS:
     
     zero_policy = [0] * 806
     def receive_network_output(self, output):
+        if output is not None:
+            output = output.squeeze(0)
         # Set policy.
         if self.current_node.state.winner == PFPiece.Empty:
             if output is None:

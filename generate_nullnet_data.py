@@ -48,16 +48,16 @@ def generate_nullnet_data(amount=int(1e6)):
 
 @torch.no_grad()
 def combine_sets():
-    nullset1 = torch.load('nullset_20K.tnsr', weights_only=False)
+    nullset1 = torch.load('nullset_100K.tnsr', weights_only=False)
     X1 = nullset1['X'].cuda()
     Y1 = nullset1['Y'].cuda()
-    nullset2 = torch.load('nullset_1736308553.tnsr', weights_only=False)
+    nullset2 = torch.load('nullset_1736318349.tnsr', weights_only=False)
     X2 = nullset2['X'].cuda()
     Y2 = nullset2['Y'].cuda()
     X = torch.cat([X1, X2], dim=0)
     Y = torch.cat([Y1, Y2], dim=0)
     print(X.shape, Y.shape)
-    torch.save({'X': X, 'Y': Y}, 'nullset_100K.tnsr')
+    torch.save({'X': X, 'Y': Y}, 'nullset_500K.tnsr')
 
 net = NullNet()
 @torch.no_grad()
@@ -80,5 +80,6 @@ def play_nullnet_game():
     inputs = torch.stack([state.to_tensor() for state in mcts.history]).float()
     return (inputs, outputs)
 
-if __name__ == '__main__':
-    generate_nullnet_data()
+# if __name__ == '__main__':
+#     generate_nullnet_data()
+combine_sets()

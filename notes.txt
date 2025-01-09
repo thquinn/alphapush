@@ -187,15 +187,27 @@
         - shrink and restructure (64K params): .00023 at 40 epochs, sticks
         X try a huge run (811K params, batch128): overfit...? about the same as previous bests
         X training at half precision brought loss up by about 25%, not too bad, but no more performant
-- Testing separate network trained on NullNet dataset: 267K params
-    - Generating ~1K examples / 80sec
+- Testing separate network trained on NullNet dataset: 270K params
+    - Generating ~1K examples / 80 - 90 seconds
     - 20K examples can get test loss from 1.63 to 1.51
     - batchnorm is doing something screwy, making loss explode to infinity. Could just be that the dataset is too small...?
     - 100K examples, loss down to 1.36, but it still rebounds and starts increasing to 1.7+ after ~15 epochs: probably overfitting
         - Train and test loss descent together, then start to diverge as train loss plummets to 1.10
         - batchnorm seems to make it even better at overfitting, train loss 0.82 and falling while test loss > 1.6. At least test policy loss is decreasing! (2.8 -> 2.7)
+        X reduced to 208K params, still overfitting. does reach 1.39 test loss, though. (reverted)
+    - 500K examples, test loss to 1.32
+        - 20% dropout between all hidden layers: test loss to 1.30 after 25 epochs, overfitting dramatically reduced
+        - learning rate currently 0.01, if I increase it to 0.1 everything explodes (supposedly dropout lets you 10x LR but...)
+        - lr 0.01->0.02, momentum re-enabled: test loss to 1.28 after 25 epochs
+        X tripled network to 800K params: similar performance, slower to converge
+        - a tiny win for Adam: on 800K params and 50% dropout, converges faster than SGD! still no better than 270K, reverting...
+        - loaded up 1Mv9 out of curiosity: it has higher test loss than random
+        - Testing null training results: 270Kv0 beats NullNet 64% @512 playouts, 74% @2K playouts!
 
 - TODO
+    - is most robust child still the way to go?
+    - what's up with the still very high policy loss?
+    - try half precision on the new GPU
     - parallelize promotion games
     - seeing anecdotal evidence that the training values should incorporate the MCTS result, not just the game result
     - "curriculum" based on high-loss game states
