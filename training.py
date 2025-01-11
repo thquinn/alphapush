@@ -106,7 +106,7 @@ def generate_training_dataset():
     inputs = []
     outputs = []
     print('Starting dataset generation.')
-    for _ in range(1):
+    while True:
         batch_time = time.time()
         input, output = generate_training_data(net, min_training_items=10000, parallelism=32)
         print(f'Generated {input.shape[0]} examples in {(time.time() - batch_time):.1f} seconds. Saving...')

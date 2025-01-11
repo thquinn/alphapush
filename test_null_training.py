@@ -45,14 +45,14 @@ def get_loss(predictions, batch_output, debug_print=False):
 def test_null_training():
     # net = NullTrainingNetwork().cuda()
     net = torch.load('model_270K_v002.pt', weights_only=False).cuda()
-    net.model[19].p = 0.5
+    net.model[19].p = 0.2 # Dropout percentage.
     pytorch_total_params = sum(p.numel() for p in net.parameters())
     print(f'Created network with {pytorch_total_params} total parameters.')
     print('Loading dataset...')
-    nullset = torch.load('dataset_270K_v000_110K.tnsr', weights_only=False)
+    nullset = torch.load('dataset_270K_v001_300K.tnsr', weights_only=False)
     X1 = nullset['X'].cuda()
     Y1 = nullset['Y'].cuda()
-    nullset = torch.load('dataset_270K_v001_210K.tnsr', weights_only=False)
+    nullset = torch.load('dataset_270K_v002_470K.tnsr', weights_only=False)
     X2 = nullset['X'].cuda()
     Y2 = nullset['Y'].cuda()
     X = torch.cat([X1, X2], dim=0)
@@ -65,7 +65,7 @@ def test_null_training():
     split = math.floor(len(X) * 0.9)
     X_train = X[:split,:]
     Y_train = Y[:split,:]
-    training_batches = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, Y_train), batch_size=512, shuffle=True)
+    training_batches = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, Y_train), batch_size=1024, shuffle=True)
     X_test = X[split:,:]
     Y_test = Y[split:,:]
 

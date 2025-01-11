@@ -245,9 +245,18 @@
             - It thinks that White will respond immediately with Push@5.Down, probably because it thinks there's 0.30p for that move. But is there...?
             - No, it looks like it has 0.20p in that state. Are we passing the wrong state to the network, or doing something wonky with the output?
             - We were always passing the root state tensor to the net in debug_state.
-        > Vs. me, PFState.construct('.........wwWW.BbB..B.W..b.', False, 2, 21) it does save the piece, but then pushes it down to 23
+        - Vs. me, PFState.construct('.........wwWW.BbB..B.W..b.', False, 2, 21) it does save the piece, but then pushes it down to 23
             - But now in a spot check, after Move@24>20 it opts for Push@16.Left. In the game it kept visits from previous moves...
             - Even then, how did Push@16.Down overtake it? It has bad policy in both preceding states and in spot eval is in dead last in that position
+            - Probably just the root tensor bug again: it's going for Push@16.Left @2K
+            - Uh oh, back to Push@16.Down @20K: 0.02p, but it's tied for second in value
+            - Maybe it's a "logical" move to the network: the anchored pusher is exactly where White would need to push from to win.
+            - But now @100K we've landed on the disastrous Move@14>17 with -0.30p and somehow the highest value.
+            - For the final move of its turn, Black's value estimate has fallen from 0.27 to -0.05
+            - Likely a horizon problem: after Push@16.Left, White needs its full turn to win (lots of options, though...)
+            - It thinks White's three most likely moves are getting the pusher at 21 to safety. It has a certain logic...
+            - The model may just not have the parameters/depth to recognize 'flood fill' regions like this.
+                - Ideally the policy for White's first move would be high for Move@9>anywhere.
 - 270Kv2
     - Training with 110K examples from v0 and 210K from v1
         - Test loss starting at 1.48
@@ -264,18 +273,23 @@
         - 'antipolicy' still better for NullNet presumably because it requires moving a piece to a risky spot
         - 'horizon6' still too hard for v2: black has two moves and a push to go, then it takes all 3 actions from white to win
             - @320K it's starting to see that White likes its chances: RAVE would probably help here
-        - the bug was probably in versus() also, but v2 still wins 65% against v1. That's ~414 Elo over NullNet now!
+        - 'deadlock': signs of life @100K! White's winning Move@9>6 is in the principal variation with positive policy.
+            - And indeed, @200K, we've got the totally palatable Push@16.Left at the top and the blunder 3rd.
+        - the bug was probably in versus() also, but v2 still wins 65% against v1. That's ~414 Elo over NullNet @2K now!
+            - And just 66% @8K, so I guess that's not a trend after all.
+- 270Kv3
+    - Training from 300K from v1 and 470K from v2. Starting test loss: 1.507
 - GCloud
     - each C2D($67/mo) machine takes ~2h to generate 10K examples using 1/2 cores
     - T2D's ($32/mo) takes ~2h15m for 10K examples. 1vCPU indeed hits 100% CPU with normal training. i can bring up 8 of these in one region!
     - N2D ($50/mo) takes ~2h15m for 10K examples, hits 50% CPU
+    - With spot instances, T2D costs about 1.8 cents per 10K examples generated. That $300 credit is worth ~167M examples!
 - TODO
+    - in versus games, print the move chosen and the actual top move
     - when we hit a terminal node with MCTS, we should immediately update the stats and iterate again until we don't. no point sending terminal nodes to the net
-    - figure out how to get more out of Google Cloud
-        - don't shutdown, just keep running. log on script start and batch start
-        - spot instances w/ shutdown script to upload: the prices are like 20%
+        - especially when we override the value output and then never use the policy output
     - how can i juice this thing before the exhibition
-        - exploration might be too low given the conservative policy range
+        - exploration might be too low given the conservative policy range (range is growing, though...)
         - don't generate moves of leaves until needed
         - profile
         - RAVE?

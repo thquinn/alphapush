@@ -11,7 +11,7 @@ from training import eval_match
 def versus():
     old_net = torch.load('model_270K_v001.pt', weights_only=False).cpu().eval()
     new_net = torch.load('model_270K_v002.pt', weights_only=False).cpu().eval()
-    eval_match(old_net, new_net, evals_per_position=2048, verbose=True)
+    eval_match(old_net, new_net, evals_per_position=8000, verbose=True)
 
 @torch.no_grad()
 def versus_human(model_name = '270K_v001', human_plays_white=True, evals_per_position=20000, temperature=0, state=PFState()):
@@ -56,19 +56,20 @@ def debug_state():
     # net = NullNet()
     net = torch.load('model_270K_v002.pt', weights_only=False).cpu().eval()
 
-    state = PFState()
+    # state = PFState()
     # state = PFState.construct('......W..WwwW.............', False, -1, -1) # 'blackstandard': example before black's first placement
     # state = PFState.construct('wWWw.......W..bB.BBb......', True, 2, -1) # 'firstwin': win-in-two that NullNet is missing @512, catching @2048. 270Kv0 catches it at 80!
     # state = PFState.construct('.....W.w...bWW.Bw.bB....B.', True, 2, 19) # 'antipolicy': win-in-three. Null spots it @24K 270Kv0-2 @32K
     # state = PFState.construct('.......W.w.bWB.B...wB.Wb..', False, 2, 22) # 'horizon6': 270Kv2 still failing @320K+
+    state = PFState.construct('.........wwWW.BbB..BbW....', False, 1, 21) # 'deadlock': 270Kv1 blunders @200K and avoids @400K, 270Kv2 avoids @200K.
 
     print(state)
     root_output = net.forward(state.to_tensor())
     if root_output is not None:
-        root_output = root_output.numpy[0]()
+        root_output = root_output[0].numpy()
     mcts = MCTS(state, root_output)
-    mcts.run_with_net(net, min_evals=24000, advance=False)
-    mcts.advance_root(temperature=0, print_depth=1, top_n=999)
+    mcts.run_with_net(net, min_evals=400000, advance=False)
+    mcts.advance_root(temperature=0, print_depth=3, top_n=3)
 
 if __name__ == '__main__':
     versus()
