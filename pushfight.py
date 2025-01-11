@@ -19,6 +19,10 @@ class PFPiece(IntFlag):
         return 'B' if PFPiece.Pusher in self else 'b'
     def __str__(self): return self.__repr__()
 
+# Bitwise operations between IntFlags was consuming like 15% of self-play time... why are we all using Python, again?
+white_pusher = PFPiece.White | PFPiece.Pusher
+black_pusher = PFPiece.Black | PFPiece.Pusher
+
 class PFDirection(Enum):
     Up = 0
     Left = 1
@@ -34,15 +38,32 @@ class PFMove:
     pushFromIndex: int
     pushDirection: PFDirection
 
-    @classmethod
-    def place(cls, index: int):
-        return cls(index, -1, -1, -1, PFDirection.NoPush)
-    @classmethod
-    def move(cls, fromIndex: int, toIndex: int):
-        return cls(-1, fromIndex, toIndex, -1, PFDirection.NoPush)
-    @classmethod
-    def push(cls, fromIndex: int, direction: PFDirection):
-        return cls(-1, -1, -1, fromIndex, direction)
+    @staticmethod
+    def place(index: int):
+        return PFMove(index, -1, -1, -1, PFDirection.NoPush)
+    @staticmethod
+    def move(fromIndex: int, toIndex: int):
+        return PFMove(-1, fromIndex, toIndex, -1, PFDirection.NoPush)
+    @staticmethod
+    def push(fromIndex: int, direction: PFDirection):
+        return PFMove(-1, -1, -1, fromIndex, direction)
+    @staticmethod
+    def parse(s):
+        try:
+            tokens = s.lower().replace('@', '.').replace('>', '.').split('.')
+            index_one = int(tokens[1])
+            if tokens[0] == 'place':
+                return PFMove.place(index_one)
+            if tokens[0] == 'move':
+                index_two = int(tokens[2])
+                return PFMove.move(index_one, index_two)
+            if tokens[0] == 'push':
+                direction = PFDirection[tokens[2].capitalize()]
+                return PFMove.push(index_one, direction)
+        except Exception as e:
+            print(e)
+            pass
+        return None
     
     def __int__(self):
         if self.placeIndex >= 0:
@@ -59,6 +80,11 @@ class PFMove:
             return f'Move@{self.moveFromIndex}>{self.moveToIndex}'
         return f'Push@{self.pushFromIndex}.{self.pushDirection.name}'
     def __str__(self): return self.__repr__()
+
+# Instantiating these PFMoves was consuming like 20% of self-play time... why are we all using Python, again?
+staticmove_places = [PFMove.place(i) for i in range(26)]
+staticmove_moves = [[PFMove.move(x, y) for y in range(26)] for x in range(26)]
+staticmove_pushes = [[PFMove.push(i, dir) for dir in [PFDirection.Up, PFDirection.Left, PFDirection.Right, PFDirection.Down]] for i in range(26)]
 
 class PFState:
     #  (white side)
@@ -131,20 +157,21 @@ class PFState:
 
     def set_moves(self):
         if self.num_pieces < 10:
-            self.moves = [PFMove.place(i) for i in (range(0, 13) if self.white_to_move else range(13, 26)) if self.board[i] == PFPiece.Empty]
+            self.moves = [staticmove_places[i] for i in (range(0, 13) if self.white_to_move else range(13, 26)) if self.board[i] == PFPiece.Empty]
             return
         self.moves = []
         # Pushing moves.
         color = PFPiece.White if self.white_to_move else PFPiece.Black
+        my_pusher = white_pusher if self.white_to_move else black_pusher
         for i in range(26):
             if self.board[i] == (color | PFPiece.Pusher):
                 for direction in PFState.DIRECTIONS:
                     if self.can_push(i, direction):
-                        self.moves.append(PFMove.push(i, direction))
+                        self.moves.append(staticmove_pushes[i][direction.value])
         # Moving... moves.
         if self.moves_left > 0:
             for i in range(26):
-                if self.board[i] & color:
+                if self.board[i] == color or self.board[i] == my_pusher:
                     queue = deque([i])
                     seen = [False] * 26
                     seen[i] = True
@@ -154,7 +181,7 @@ class PFState:
                             if seen[neighbor]:
                                 continue
                             if self.board[neighbor] == PFPiece.Empty:
-                                self.moves.append(PFMove.move(i, neighbor))
+                                self.moves.append(staticmove_moves[i][neighbor])
                                 seen[neighbor] = True
                                 queue.append(neighbor)
     
@@ -212,13 +239,16 @@ class PFState:
                 if next_index < 0:
                     if next_index == PFState.VOID:
                         self.winner = PFPiece.White if value & PFPiece.Black else PFPiece.Black
-                    return
+                    break
                 next_value = self.board[next_index]
                 self.board[next_index] = value
                 value = next_value
                 index = next_index
             self.anchor_position = PFState.NEIGHBORS[move.pushFromIndex][move.pushDirection.value]
             assert self.anchor_position >= 0
+            if self.winner != PFPiece.Empty:
+                self.moves = []
+                return
             self.white_to_move = not self.white_to_move
             self.moves_left = 2
         if set_moves:
@@ -228,60 +258,51 @@ class PFState:
     
     @torch.no_grad()
     def to_tensor(self):
+        arr = np.zeros(160)
         # 3 elements: one-hot, are we [placing pushers], [placing round pieces], or [playing the game]?
-        phase = np.zeros(3, dtype=np.int8)
         if self.num_pieces < 10:
-            phase[0 if self.num_pieces % 5 < 3 else 1] = 1
+            arr[0 if self.num_pieces % 5 < 3 else 1] = 1
         else:
-            phase[2] = 1
+            arr[2] = 1
         # 1 element: how many moves do we have before we have to push?
-        moves_left = [self.moves_left]
+        arr[3] = self.moves_left
         # 26 elements: bitfield of all pieces
         # 26 elements: bitfield of all allied pieces
         # 26 elements: bitfield of all enemy pieces
         # 26 elements: bitfield of all allied pushers
         # 26 elements: bitfield of all enemy pushers
-        board = np.array(self.board)
-        pieces = (board != PFPiece.Empty).astype(np.int8)
         color = PFPiece.White if self.white_to_move else PFPiece.Black
-        enemy = PFPiece.Black if self.white_to_move else PFPiece.White
-        allied_pieces = ((board & color) > 0).astype(np.int8)
-        enemy_pieces = ((board & enemy) > 0).astype(np.int8)
-        allied_pushers = (board == (color | PFPiece.Pusher)).astype(np.int8)
-        enemy_pushers = (board == (enemy | PFPiece.Pusher)).astype(np.int8)
-        if self.winner == PFPiece.Empty:
-            assert pieces.sum() == self.num_pieces
-            if self.num_pieces == 10:
-                assert allied_pieces.sum() == 5
-                assert enemy_pieces.sum() == 5
-                assert allied_pushers.sum() == 3
-                assert enemy_pushers.sum() == 3
-         # 26 elements: bitfield of anchor position
-        anchor_pos = np.zeros(26, dtype=np.int8)
+        arr_all = arr[4:30]
+        arr_allied = arr[30:56]
+        arr_enemy = arr[56:82]
+        arr_allied_pushers = arr[82:108]
+        arr_enemy_pushers = arr[108:134]
+        for i in range(26):
+            piece = self.board[i]
+            if piece == PFPiece.Empty:
+                continue
+            arr_all[i] = 1
+            if piece & color:
+                arr_allied[i] = 1
+                if piece == white_pusher or piece == black_pusher:
+                    arr_allied_pushers[i] = 1
+            else:
+                arr_enemy[i] = 1
+                if piece & PFPiece.Pusher:
+                    arr_enemy_pushers[i] = 1
+        # 26 elements: bitfield of anchor position
         if self.anchor_position > -1:
-            rotated_anchor = self.anchor_position if self.white_to_move else 25 - self.anchor_position
-            anchor_pos[rotated_anchor] = 1
+            arr[134 + self.anchor_position] = 1
         # 160 total elements
-        t = np.concatenate([
-            phase,
-            moves_left,
-            pieces.astype(np.int8),
-            allied_pieces,
-            enemy_pieces,
-            allied_pushers,
-            enemy_pushers,
-            anchor_pos
-        ])
-        assert len(t) == 160
-        return torch.from_numpy(t).float()
+        return torch.from_numpy(arr).float().unsqueeze(0)
     
     def __repr__(self):
-        formatting_tokens = ['  ', '', '\n', '', '', '\n', '', '', '', '\n', '', '', '', '\n', '', '', '', '\n', '', '', '', '\n  ', '', '', '\n  ', '']
+        formatting_tokens = ['    ', '', '\n| ', '', '', '\n| ', '', '', '', '|\n| ', '', '', '', '|\n| ', '', '', '', '|\n| ', '', '', '', '|\n    ', '', '', '|\n    ', '']
         piece_tokens = [str(p) for p in self.board]
         anchor_tokens = ['!' if i == self.anchor_position else ' ' for i in range(26)]
         board_string = ''.join(chain.from_iterable(zip(formatting_tokens, piece_tokens, anchor_tokens)))
         status_string = ' | '.join([s for s in [
-            f'{'White' if self.white_to_move else 'Black'} to move',
+            f'{"White" if self.white_to_move else "Black"} to move',
             'placing pushers' if self.num_pieces < 10 and self.num_pieces % 5 < 3 else None,
             'placing rounds' if self.num_pieces < 10 and self.num_pieces % 5 >= 3 else None,
             f'{self.moves_left} moves left' if self.num_pieces == 10 else None,

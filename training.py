@@ -2,17 +2,19 @@ import math
 import time
 import torch
 import torch.nn as nn
+import uuid
 from mcts import MCTS
 from network import NullNet
 from pushfight import PFPiece, PFState
 from test_null_training import NullTrainingNetwork
 
+@torch.no_grad()
 def generate_training_data(net, min_training_items, evals_per_position=2048, parallelism=1):
     net.eval()
     training_inputs = []
     training_outputs = []
     mctses = [None] * parallelism
-    root_output = net.forward(PFState().to_tensor().unsqueeze(0))
+    root_output = net.forward(PFState().to_tensor()).numpy()[0]
     while len(training_outputs) < min_training_items:
         for i, mcts in enumerate(mctses):
             if mcts is None or mcts.root.state.winner != PFPiece.Empty or len(mcts.history) > 200:
@@ -30,7 +32,7 @@ def generate_training_data(net, min_training_items, evals_per_position=2048, par
                 output = None
             else:
                 input_tensor = torch.stack([mcts.get_current_state_tensor() for mcts in mctses])
-                output = net.forward(input_tensor)
+                output = net.forward(input_tensor).numpy()
             for i, mcts in enumerate(mctses):
                 mcts.receive_network_output(output[i] if output is not None else None)
         for mcts in mctses:
@@ -51,6 +53,7 @@ def generate_training_data(net, min_training_items, evals_per_position=2048, par
     training_outputs = torch.tensor(training_outputs)
     return training_inputs, training_outputs
 
+@torch.no_grad()
 def eval_match(old_net, new_net, games=100, evals_per_position=512, verbose=False):
     old_net.eval()
     new_net.eval()
@@ -71,7 +74,9 @@ def eval_match(old_net, new_net, games=100, evals_per_position=512, verbose=Fals
             state_hashes.append(hash(state))
             total_moves += 1
             net = white if state.white_to_move else black
-            root_output = net.forward(state.to_tensor().unsqueeze(0))
+            root_output = net.forward(state.to_tensor())
+            if root_output is not None:
+                root_output = root_output[0].numpy()
             mcts = MCTS(state, root_output)
             mcts.run_with_net(net, evals_per_position)
             state = mcts.root.state
@@ -96,21 +101,19 @@ def eval_match(old_net, new_net, games=100, evals_per_position=512, verbose=Fals
     return new_wins / games >= .55
 
 def generate_training_dataset():
-    model_name = '270K_v000'
+    model_name = '270K_v001'
     net = torch.load(f'model_{model_name}.pt', weights_only=False).cpu()
     inputs = []
     outputs = []
-    start_time = time.time()
     print('Starting dataset generation.')
-    for _ in range(50):
+    for _ in range(1):
         batch_time = time.time()
-        input, output = generate_training_data(net, min_training_items=100, parallelism=64)
+        input, output = generate_training_data(net, min_training_items=10000, parallelism=32)
         print(f'Generated {input.shape[0]} examples in {(time.time() - batch_time):.1f} seconds. Saving...')
         inputs.append(input)
         outputs.append(output)
-        torch.save({'X': torch.cat(inputs, dim=0), 'Y': torch.cat(outputs, dim=0)}, f'dataset_{model_name}_{math.floor(start_time)}.tnsr')
+        torch.save({'X': torch.cat(inputs, dim=0), 'Y': torch.cat(outputs, dim=0)}, f'dataset_{model_name}_1K_{uuid.uuid4()}.tnsr')
         print('Saved.')
-        return
 
 if __name__ == '__main__':
     generate_training_dataset()

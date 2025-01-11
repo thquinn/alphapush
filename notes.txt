@@ -187,7 +187,7 @@
         - shrink and restructure (64K params): .00023 at 40 epochs, sticks
         X try a huge run (811K params, batch128): overfit...? about the same as previous bests
         X training at half precision brought loss up by about 25%, not too bad, but no more performant
-- Testing separate network trained on NullNet dataset: 270K params
+- Testing separate network trained on NullNet dataset: 270K_v000
     - Generating ~1K examples / 80 - 90 seconds
     - 20K examples can get test loss from 1.63 to 1.51
     - batchnorm is doing something screwy, making loss explode to infinity. Could just be that the dataset is too small...?
@@ -202,12 +202,88 @@
         X tripled network to 800K params: similar performance, slower to converge
         - a tiny win for Adam: on 800K params and 50% dropout, converges faster than SGD! still no better than 270K, reverting...
         - loaded up 1Mv9 out of curiosity: it has higher test loss than random
-        - Testing null training results: 270Kv0 beats NullNet 64% @512 playouts, 74% @2K playouts!
-
+    - Testing null training results: 270Kv0 beats NullNet 64% @512 playouts, 74% @2K, 91% @8K!
+    - Spot-testing individual states
+        - Strong policy/value opinions haven't percolated up to White's placement moves yet
+            - policy is between -0.01 and -0.05 for all first moves
+            - value is seemingly 0.31 for everything...? even @1M playouts, no real sign of higher values. visits equal across all root children
+        - Signs of life policy-wise: winning pushes with ~1 policy, losing ones with negative policy
+- Optimizing self-play
+    - Oops! We were still flipping the anchor position on black to play.
+    - MCTS.receive_network_output is 12%, PFState.set_moves 26%, MCTS.get_current_state_tensor 20%
+    - Before optimization: Generated 109 examples in 136.1 seconds.
+    - After optimization: Generated 133 examples in 91.3 seconds.
+    - "Full" run: Generated 10017 examples in 4873.4 seconds. Saving...
+    - Batching NN execution results in 50-60% CPU utilization, but is still faster than the multiprocessing.Pool used for nullnet data gen which totally maxes CPU
+- Trying to train 270Kv1...
+    - Self-play is slow, so trying 110K new examples mixed with 110K old
+        - Could be worth cycling the old examples every epoch to reduce overfitting...?
+    - Overfitting is obviously a problem, so increased dropout to 50% which seems to just baaaaaarely be doing the job
+    - Test loss was 1.28 at end of v0 training, now 1.39
+    - We can really only get test loss down to 1.34 with this little new data.
+        - The good news (maybe?) is that a higher percentage of this loss reduction seems to be coming from policy
+    - Playing a promotion match with this crappy 270Kv1
+        - I've learned that the only guaranteed losing move during piece placement is Black's Place@17, and i've seen it 6-1 from v0-v1
+        - Incredibly, after just 100 epochs on a 220K half-null half-v0 dataset resulting in just 3.5% test loss reduction, we have a result:
+        - v1 beats v0 66% @2K playouts! v0 still won 24/50 games as White.
+        - Using very rough math, that's +304 Elo @2K playouts over NullNet.
+    - I'm starting to see why promotion matches are run so frequently in AGZ, and not at all in AG: the network improves fast, so you want it to be the one self-playing.
+    - Another detail from the AGZ paper: temperature starts at 1 during self play, but tapers to 0
+    - More spot testing
+        - I can still beat it in just a few turns @20K. No blunders, just bad positioning.
+        - Empty board @2K now has policy from .23 to -.19 — this spread using e^x is only 144% max/min — values still uniform (0.23)
+        - Empty board @1M still has basically no value spread, uniform at -0.16... the more it thinks, the more it expects White to lose from the start...?
+        - Black's first placement vs. a standard white placement does indeed dislike Place@17, -0.30p vs. its favorite Place@16 with 0.56p
+        - Black start @100K has uniform value -0.77 except Place@16 which has 0.34v and 10x the next move's visits with just 0.28p more.
+            - The trend is even worse @200K, Place@16 now has 30x
+        - Losing black Place@17 in promotion game position ....W.w.Ww..W..B..B....... was indeed just temperature, last @2K and @100K
+            - Still has positive average value @100K, strangely...
+        - Bad black move in promotion position Ww..WwB...WB....B..b..b... was also temperature
+            - Ditto white in ......WW.w.wW.B.BB.b..b... w/ 2 moves
+        - Promotion position PFState.construct('...w.WB..w..Bb....W.WBb...', False, 2, 18) is a disaster for v1, Push@6.Up has -0.25p but somehow 0.51v @8K, still 0.42v @100K (!!)
+            - @100K: still liking its chances with Move@12>14, Move@22>11, but then hates its only move Push@6.Up. This looks like an MCTS bug...?
+            - It thinks that White will respond immediately with Push@5.Down, probably because it thinks there's 0.30p for that move. But is there...?
+            - No, it looks like it has 0.20p in that state. Are we passing the wrong state to the network, or doing something wonky with the output?
+            - We were always passing the root state tensor to the net in debug_state.
+        > Vs. me, PFState.construct('.........wwWW.BbB..B.W..b.', False, 2, 21) it does save the piece, but then pushes it down to 23
+            - But now in a spot check, after Move@24>20 it opts for Push@16.Left. In the game it kept visits from previous moves...
+            - Even then, how did Push@16.Down overtake it? It has bad policy in both preceding states and in spot eval is in dead last in that position
+- 270Kv2
+    - Training with 110K examples from v0 and 210K from v1
+        - Test loss starting at 1.48
+        - batch512 is settling around 1.38/1.43 train/test
+            - That includes the biggest drop in policy loss we've seen from 2.6768 to 2.6561
+            - In the promotion match, they both seem stupider @2K than before: repeatedly pushing their own pieces around
+            - But then somehow it wins 70%...
+        - Trying a 600K version: 1.36/1.43 after 400 epochs, only wins 39% against 270Kv2 @256
+        - Argh, we can't be using unseeded randperm to mix datasets
+    - Alright, we had a bug in debug_state (ha, ha), time for more spot checks
+        - white start policy spread from -0.40p to 0.32p
+            - the flat values we were seeing was the "always passing root state" bug: even v0 has a spread from 0.21v to 0.38v @2K
+        - lethal Black Place@17 policy has risen slightly to -0.25p, MCTS still kills its value though
+        - 'antipolicy' still better for NullNet presumably because it requires moving a piece to a risky spot
+        - 'horizon6' still too hard for v2: black has two moves and a push to go, then it takes all 3 actions from white to win
+            - @320K it's starting to see that White likes its chances: RAVE would probably help here
+        - the bug was probably in versus() also, but v2 still wins 65% against v1. That's ~414 Elo over NullNet now!
+- GCloud
+    - each C2D($67/mo) machine takes ~2h to generate 10K examples using 1/2 cores
+    - T2D's ($32/mo) takes ~2h15m for 10K examples. 1vCPU indeed hits 100% CPU with normal training. i can bring up 8 of these in one region!
+    - N2D ($50/mo) takes ~2h15m for 10K examples, hits 50% CPU
 - TODO
+    - when we hit a terminal node with MCTS, we should immediately update the stats and iterate again until we don't. no point sending terminal nodes to the net
+    - figure out how to get more out of Google Cloud
+        - don't shutdown, just keep running. log on script start and batch start
+        - spot instances w/ shutdown script to upload: the prices are like 20%
+    - how can i juice this thing before the exhibition
+        - exploration might be too low given the conservative policy range
+        - don't generate moves of leaves until needed
+        - profile
+        - RAVE?
+        - can we use the GPU to evaluate a single position somehow?
+    - could disallow moving the same piece twice in a row, to reduce branching...?
     - is most robust child still the way to go?
-    - what's up with the still very high policy loss?
     - try half precision on the new GPU
     - parallelize promotion games
     - seeing anecdotal evidence that the training values should incorporate the MCTS result, not just the game result
     - "curriculum" based on high-loss game states
+    - per-net benchmarks like "% of cases where the best move after 1M playouts had the best policy logit"

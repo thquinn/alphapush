@@ -43,19 +43,29 @@ def get_loss(predictions, batch_output, debug_print=False):
     return loss_value + loss_policy * loss_policy_weight
     
 def test_null_training():
-    net = NullTrainingNetwork().cuda()
-    # net = torch.load('model_1M_v009.pt', weights_only=False).cuda()
+    # net = NullTrainingNetwork().cuda()
+    net = torch.load('model_270K_v002.pt', weights_only=False).cuda()
+    net.model[19].p = 0.5
     pytorch_total_params = sum(p.numel() for p in net.parameters())
     print(f'Created network with {pytorch_total_params} total parameters.')
     print('Loading dataset...')
-    nullset = torch.load('nullset_500K.tnsr', weights_only=False)
-    X = nullset['X'].cuda()
-    Y = nullset['Y'].cuda()
+    nullset = torch.load('dataset_270K_v000_110K.tnsr', weights_only=False)
+    X1 = nullset['X'].cuda()
+    Y1 = nullset['Y'].cuda()
+    nullset = torch.load('dataset_270K_v001_210K.tnsr', weights_only=False)
+    X2 = nullset['X'].cuda()
+    Y2 = nullset['Y'].cuda()
+    X = torch.cat([X1, X2], dim=0)
+    Y = torch.cat([Y1, Y2], dim=0)
+    torch.manual_seed(0)
+    randperm = torch.randperm(X.shape[0])
+    X = X[randperm].view(X.size())
+    Y = Y[randperm].view(Y.size())
     print(f'Loaded dataset. Inputs are of shape {X.shape}, outputs of shape {Y.shape}.')
     split = math.floor(len(X) * 0.9)
     X_train = X[:split,:]
     Y_train = Y[:split,:]
-    training_batches = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, Y_train), batch_size=256, shuffle=True)
+    training_batches = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, Y_train), batch_size=512, shuffle=True)
     X_test = X[split:,:]
     Y_test = Y[split:,:]
 
@@ -64,8 +74,9 @@ def test_null_training():
     loss = get_loss(net(X_test), Y_test, debug_print=True)
     print(f'Starting test loss: {loss}.')
     # Train.
-    optimizer = torch.optim.SGD(net.parameters(), lr=0.02, momentum=0.9)
+    optimizer = torch.optim.SGD(net.parameters(), lr=0.002, momentum=0.9)
     # torch.autograd.set_detect_anomaly(True)
+    min_test_loss = 999999
     for epoch in range(1000):
         print(f'Starting epoch {epoch + 1} of 1000.')
         net.train()
@@ -84,8 +95,10 @@ def test_null_training():
             train_loss = get_loss(X_train_pred, Y_train, debug_print=False)
             test_loss = get_loss(X_test_pred, Y_test, debug_print=True)
         torch.cuda.empty_cache()
-        # torch.save(net, 'model_270K_v000.pt')
-        print(f'Epoch finished in {elapsed_time:.1f}s. Train loss: {train_loss}. Test loss: {test_loss}.')
+        if test_loss < min_test_loss:
+            min_test_loss = test_loss
+            torch.save(net, 'model_270K_v003.pt')
+        print(f'Epoch finished in {elapsed_time:.1f}s. Train loss: {train_loss:.4f}. Test loss: {test_loss:.4f}.')
 
 if __name__ == '__main__':
     test_null_training()

@@ -36,13 +36,13 @@ class MCTSNode:
         prints = list(zip(moves, [self.children[move].visits for move in moves], expected_values, policy_percents))
         prints.sort(key=lambda p: p[1], reverse=True)
         for i in range(min(top_n, len(prints))):
-            print(f'{'  ' * (current_depth - 1)}{prints[i]}')
+            print(f'{"  " * (current_depth - 1)}{prints[i]}')
             if current_depth < depth:
                 self.children[prints[i][0]].debug_print(depth, current_depth + 1, top_n)
         if len(prints) > top_n:
             if len(prints) > top_n + 1:
-                print(f'{'  ' * (current_depth - 1)}...')
-            print(f'{'  ' * (current_depth - 1)}{prints[-1]}')
+                print(f'{" " * (current_depth - 1)}...')
+            print(f'{" " * (current_depth - 1)}{prints[-1]}')
 
 class MCTS:
     root: MCTSNode
@@ -60,20 +60,21 @@ class MCTS:
         self.values = []
         self.policies = []
     
-    def run_with_net(self, net, min_evals, advance=True):
+    def run_with_net(self, net, min_evals, advance=True, temperature=0.1):
         evals = 0
         while evals < min_evals or not all(self.root.children.values()):
             self.select_and_expand()
-            input_tensor = self.get_current_state_tensor()
-            output = net.forward(input_tensor.unsqueeze(0))
+            output = net.forward(self.get_current_state_tensor())
+            if output is not None:
+                output = output[0].numpy()
             self.receive_network_output(output)
             evals += 1
         if advance:
-            self.advance_root(temperature=0.1)
+            self.advance_root(temperature=temperature)
     
     def select_and_expand(self):
         while self.current_node.state.winner == PFPiece.Empty and all(self.current_node.children.values()):
-            max_move = max(self.current_node.children, key=lambda k: self.current_node.children[k].get_upper_bound(self.current_node.child_policies[int(k)]))
+            max_move = max(self.current_node.children.keys(), key=lambda k: self.current_node.children[k].get_upper_bound(self.current_node.child_policies[int(k)]))
             self.current_node = self.current_node.children[max_move]
         if not all(self.current_node.children.values()):
             missing_move = None
@@ -92,8 +93,6 @@ class MCTS:
     
     zero_policy = [0] * 806
     def receive_network_output(self, output):
-        if output is not None:
-            output = output.squeeze(0)
         # Set policy.
         if self.current_node.state.winner == PFPiece.Empty:
             if output is None:
@@ -101,9 +100,9 @@ class MCTS:
             else:
                 policy = output[1:]
                 assert len(policy) == 806
-                self.current_node.child_policies = policy.tolist()
+                self.current_node.child_policies = policy
         # Backpropagate value up the tree.
-        value = 0 if output is None else output[0].item()
+        value = 0 if output is None else output[0]
         if self.current_node.parent:
             current_white_to_move = self.current_node.parent.state.white_to_move
             current_player = PFPiece.White if current_white_to_move else PFPiece.Black
@@ -125,11 +124,11 @@ class MCTS:
                 policy[int(move)] = child.visits / child_sum
         return policy
     
-    def advance_root(self, temperature=1, print_depth=0):
+    def advance_root(self, temperature=1, print_depth=0, top_n=3):
         self.history.append(self.root.state)
         moves = list(self.root.children.keys())
         if print_depth > 0:
-            self.root.debug_print(print_depth)
+            self.root.debug_print(print_depth, top_n=top_n)
         if temperature == 0:
             move = max(self.root.children, key=lambda k: self.root.children[k].visits)
         else:
@@ -143,3 +142,4 @@ class MCTS:
         self.root = self.root.children[move]
         self.root.parent = None
         self.current_node = self.root
+        return move
