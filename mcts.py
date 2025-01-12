@@ -60,7 +60,7 @@ class MCTS:
         self.values = []
         self.policies = []
     
-    def run_with_net(self, net, min_evals, advance=True, temperature=0.1):
+    def run_with_net(self, net, min_evals, advance=True, temperature=0.1, print_depth=0, top_n=0):
         evals = 0
         while evals < min_evals or not all(self.root.children.values()):
             self.select_and_expand()
@@ -70,23 +70,35 @@ class MCTS:
             self.receive_network_output(output)
             evals += 1
         if advance:
-            self.advance_root(temperature=temperature)
+            self.advance_root(temperature=temperature, print_depth=print_depth, top_n=top_n)
     
     def select_and_expand(self):
-        while self.current_node.state.winner == PFPiece.Empty and all(self.current_node.children.values()):
-            max_move = max(self.current_node.children.keys(), key=lambda k: self.current_node.children[k].get_upper_bound(self.current_node.child_policies[int(k)]))
-            self.current_node = self.current_node.children[max_move]
-        if not all(self.current_node.children.values()):
-            missing_move = None
-            for k, v in self.current_node.children.items():
-                if v is None:
-                    missing_move = k
-                    break
-            new_state = PFState.copy(self.current_node.state)
-            new_state.move(missing_move)
-            new_node = MCTSNode(self.current_node, new_state)
-            self.current_node.children[missing_move] = new_node
-            self.current_node = new_node
+        assert self.current_node == self.root
+        # If the root is a winning state, there's no work to be done.
+        if self.current_node.state.winner != PFPiece.Empty:
+            return
+        for _ in range(10):
+            # Select until we find a node with missing children.
+            while self.current_node.state.winner == PFPiece.Empty and all(self.current_node.children.values()):
+                max_move = max(self.current_node.children.keys(), key=lambda k: self.current_node.children[k].get_upper_bound(self.current_node.child_policies[int(k)]))
+                self.current_node = self.current_node.children[max_move]
+            # If the root is a winning state, backpropagate and repeat.
+            if self.current_node.state.winner != PFPiece.Empty:
+                self.receive_network_output(None)
+                continue
+            # Otherwise, select a new child and prepare for network output.
+            if not all(self.current_node.children.values()):
+                missing_move = None
+                for k, v in self.current_node.children.items():
+                    if v is None:
+                        missing_move = k
+                        break
+                new_state = PFState.copy(self.current_node.state)
+                new_state.move(missing_move)
+                new_node = MCTSNode(self.current_node, new_state)
+                self.current_node.children[missing_move] = new_node
+                self.current_node = new_node
+            return
 
     def get_current_state_tensor(self):
         return self.current_node.state.to_tensor()

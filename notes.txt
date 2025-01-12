@@ -277,25 +277,47 @@
             - And indeed, @200K, we've got the totally palatable Push@16.Left at the top and the blunder 3rd.
         - the bug was probably in versus() also, but v2 still wins 65% against v1. That's ~414 Elo over NullNet @2K now!
             - And just 66% @8K, so I guess that's not a trend after all.
-- 270Kv3
-    - Training from 300K from v1 and 470K from v2. Starting test loss: 1.507
 - GCloud
     - each C2D($67/mo) machine takes ~2h to generate 10K examples using 1/2 cores
     - T2D's ($32/mo) takes ~2h15m for 10K examples. 1vCPU indeed hits 100% CPU with normal training. i can bring up 8 of these in one region!
     - N2D ($50/mo) takes ~2h15m for 10K examples, hits 50% CPU
     - With spot instances, T2D costs about 1.8 cents per 10K examples generated. That $300 credit is worth ~167M examples!
+- 270Kv3
+    - Training with 470K examples from v2. Starting test loss: 1.5600.
+        - Seems like this should be enough data for 20% dropout + 1024 batch size.
+        - Not surprised to see a significantly higher starting test loss here: this is our first training round with all new data. (Plus the data is harder.)
+        - Oops, this was with lr=.002, but: 1.5003/1.5200 after 200 epochs.
+        - lr=0.2
+            - Epoch 10 finished in 4.8s. Train/test loss: 1.4833/1.5159
+            - Epoch 50 finished in 4.6s. Train/test loss: 1.4510/1.5300.
+            - Alright, so a higher learning rate is still on the table, but we're also still overfitting.
+        - lr 0.02, 50% dropout, batch128, loaded from epoch 10 above. This is weird:
+            - Start: Test value loss: 0.8538, test policy loss: 2.6486.
+            - Ep.45: Test value loss: 0.8694, test policy loss: 2.6445.
+            - Value loss was fluctuating and trending upwards, but policy loss was steadily decreasing the entire time. A sign that the network is too small?
+            - Could also be the noisy value signal vs. the smooth policy signal
+            - Also, training totally froze at epoch 46 with the GPU reporting 100% usage, but holding at 50C (basically idle temp)
+        - The 1.5600 -> 1.5159 loss 270K network only got 53% against v2.
+        - Tried an 900K model with lr 0.002, hugely overfitting with 20% dropout and batch128
+    - Up to 710K examples and 50% dropout on a 900K param network
+        - Slows down overfitting and we can edge out our previous best 270K net (1.5151 after 40min), but training loss keeps falling after test loss levels out
+    - Alright, 270K was able to get there with more examples and lr=0.002 50%drop batch128: 66% vs 270Kv2 (+532 Elo over NullNet)
+        - Even though it only got to 1.5-something test loss, I think that magnitude of loss improvement is still enough: the previous 1.5159 was likely just a fluke
+    - Spot testing
+        - 'goodenough' has the net fighting low policy, 52 branching factor, and a move that's basically a lock to miss the win-in-3. NullNet can't find it either...?
+        - 'lockin': strange to see -0.21p for a great looking move
 - TODO
-    - in versus games, print the move chosen and the actual top move
-    - when we hit a terminal node with MCTS, we should immediately update the stats and iterate again until we don't. no point sending terminal nodes to the net
-        - especially when we override the value output and then never use the policy output
+    - MCTS overhaul for max-max
+        - if a won state is found, all previous moves during that player's turn are essentially won as well, and their values should just be 1.
     - how can i juice this thing before the exhibition
-        - exploration might be too low given the conservative policy range (range is growing, though...)
+        - PReLU?
         - don't generate moves of leaves until needed
         - profile
+        - exploration might be too low given the conservative policy range (range is growing, though...)
         - RAVE?
         - can we use the GPU to evaluate a single position somehow?
-    - could disallow moving the same piece twice in a row, to reduce branching...?
-    - is most robust child still the way to go?
+        - could disallow moving the same piece twice in a row, to reduce branching...?
+        - is most robust child still the way to go?
     - try half precision on the new GPU
     - parallelize promotion games
     - seeing anecdotal evidence that the training values should incorporate the MCTS result, not just the game result

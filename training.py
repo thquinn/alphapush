@@ -54,7 +54,7 @@ def generate_training_data(net, min_training_items, evals_per_position=2048, par
     return training_inputs, training_outputs
 
 @torch.no_grad()
-def eval_match(old_net, new_net, games=100, evals_per_position=512, verbose=False):
+def eval_match(old_net, new_net, games=100, evals_per_position=512, verbose=False, start_temp=0.1, temp_round_decrement=0.02):
     old_net.eval()
     new_net.eval()
     new_wins = 0
@@ -70,6 +70,7 @@ def eval_match(old_net, new_net, games=100, evals_per_position=512, verbose=Fals
         new_plays_white = game % 2 == 0
         white, black = (new_net, old_net) if new_plays_white else (old_net, new_net)
         state_hashes = []
+        num_full_turns = 0
         while state.winner == PFPiece.Empty:
             state_hashes.append(hash(state))
             total_moves += 1
@@ -78,7 +79,10 @@ def eval_match(old_net, new_net, games=100, evals_per_position=512, verbose=Fals
             if root_output is not None:
                 root_output = root_output[0].numpy()
             mcts = MCTS(state, root_output)
-            mcts.run_with_net(net, evals_per_position)
+            temp = max(0, start_temp - temp_round_decrement * num_full_turns) # taper temperature to 0 during the early game
+            mcts.run_with_net(net, evals_per_position, temperature=temp, print_depth=1, top_n=1)
+            if not state.white_to_move and mcts.root.state.white_to_move:
+                num_full_turns += 1
             state = mcts.root.state
             if verbose:
                 print()
