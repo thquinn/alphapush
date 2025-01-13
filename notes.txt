@@ -150,6 +150,7 @@
         - training was learning rate 0.2->0.02->0.002->0.0002, 700K batches of 4096 examples @800 playouts
         - self-play was done on TPUs
         - root nodes added Dirichlet noise to policy priors
+        - from the AlphaZero "game balance" paper: looks like it's just temp=1 for 20 ply, then temp=0
     - Even after 6 low-percent "wins" against previous networks, 320Kv7 is only 50% against NullNet
     - 320Kv7 @4k playouts as Black after a good placement from White wants to place its pieces at 25, 24, and 23, with negative priors, but high expected value
     - @512 playouts, training games are just very poor quality from NullNet, and in general. we need ~2k before we see even a glimmer of intelligence.
@@ -303,21 +304,64 @@
         - Slows down overfitting and we can edge out our previous best 270K net (1.5151 after 40min), but training loss keeps falling after test loss levels out
     - Alright, 270K was able to get there with more examples and lr=0.002 50%drop batch128: 66% vs 270Kv2 (+532 Elo over NullNet)
         - Even though it only got to 1.5-something test loss, I think that magnitude of loss improvement is still enough: the previous 1.5159 was likely just a fluke
+        - v3 beats NullNet @256 92%: +401 Elo, by that result.
     - Spot testing
         - 'goodenough' has the net fighting low policy, 52 branching factor, and a move that's basically a lock to miss the win-in-3. NullNet can't find it either...?
+            - it's really the policy network's job to ensure prioritizing good moves even when you're winning, so we'd want to see good policy here
         - 'lockin': strange to see -0.21p for a great looking move
-- TODO
-    - MCTS overhaul for max-max
+    - MCTS overhaul for max-max: "extended win propagation"
         - if a won state is found, all previous moves during that player's turn are essentially won as well, and their values should just be 1.
+        - unclear exactly what to propagate
+            - whatever the visit count of that turn's first move was, we want to convert that much value from all ancestors to "win"
+            - seems weird, but we've finally realized that it IS a win, and we HAVE visited it that many times, so the stats are now wrong... right?
+        - The same-turn-only version of this ended up being either neutral or slightly negative in testing: not sure why.
+- 270Kv4
+    - Starting test loss: 1.5363. That's gotta be our lowest yet.
+    - We're also switching to not measuring loss on the entire training set post-epoch, since it was overrunning VRAM, so we'll see higher training loss in logs.
+        - We should even expect to see higher training loss than validation loss in early epochs.
+        - The larger the dataset / smaller the batches, the more pronounced this will be since we're averaging training loss over older and older batches
+        - I can still recognize when it's overfitting, so that's good! As learning slows down, averaging over old batches doesn't matter as much, and we can see the gap
+    - Still getting ~0.87 value loss, which makes sense when all of the examples are -1 or 1, but most positions should be in the -0.25 to 0.25 range
+    - rc1: Epoch 130 finished in 19.3s. Train/test loss: 1.5104/1.5197.
+        - At lr=.002, seemed like some progress was still being made without too much overfitting
+        - Upping the learning rate seems to result only in more overfitting
+        - After more attempts, it seems like you do get faster/better results training the previous model version than starting fresh.
+        - In fact, it's not clear that fresh starts would ever reach the same test loss: is this a kind of accidental "curriculum"?
+        - Have to be careful with these comparisons if we start joining datasets, since we'll be using previous test data to train
+    - 900K is still too good at overfitting on <1M examples, test loss lagging behind 270K
+    - Trying a 320K version: Epoch 98 finished in 30.1s. Train/test loss: 1.5196/1.5322.
+        - Doesn't seem like we're going to get much below 1.53 this way.
+        - Tried PReLU and 20%drop, got to 1.5289 but it was overfit and test loss was unstable.
+    - rc2: Trying 320K, .002lr, batch128, PReLU, 20%drop again with v2+v3 datasets (1.5M): 80% VRAM, expecting the "easier" examples to result in lower loss overall
+        - Yep! Epoch 5 finished in 66.6s. Train/test loss: 1.5462/1.5187. Certainly the more-than-doubled dataset also helps with test loss.
+        - No overfit even after 40 epochs, we could maybe ditch the dropout altogether.
+        - Even though I'm scrambling the test sets, I'm still seeing lower (last epoch test loss) than (this epoch train less), which is concerning. At least the gap is narrowing...?
+            - This finally reverses around epoch 70. Maybe the test split just happens to be a little easier, combined with underfitting?
+        - It's a win/win to see this lower overall loss, since it either means:
+            - that learning is improving with the new model and larger dataset, or
+            - that the v2 dataset is markedly easier, which implies that our data is improving
+        - Train loss improvement is starting to slow around epoch 50, before it's even crossed over test loss. Looking underfit, though it *is* still decreasing.
+        - Stopping: Epoch 73 finished in 68.8s. Train/test loss: 1.4888/1.4889. 0.8319 value, 2.6281 policy.
+        - These small batch sizes are really reducing my GPU usage %.
+        - Increasing to 20x to .01lr is having surprisingly little effect on the pace of convergence
+- TODO
+    - training v4
+        - with such a small batch size, is training on CPU faster?
+        - test without PReLU
+        - test larger net
+        - try half() again...?
     - how can i juice this thing before the exhibition
-        - PReLU?
         - don't generate moves of leaves until needed
         - profile
+        - improvements from AZ and KataGo papers: Dirichlet noise and playout cap randomization
+            - Dirichlet noise could also help prevent the "exploding policy problem"
         - exploration might be too low given the conservative policy range (range is growing, though...)
         - RAVE?
-        - can we use the GPU to evaluate a single position somehow?
+        - at match time: can we use the GPU to evaluate a single position somehow?
+        - or, at match time: grab the most powerful cloud CPU I can find and use that to run instead
         - could disallow moving the same piece twice in a row, to reduce branching...?
         - is most robust child still the way to go?
+            - if we wanted to be very fancy, we could try extrapolating node stats from current trends
     - try half precision on the new GPU
     - parallelize promotion games
     - seeing anecdotal evidence that the training values should incorporate the MCTS result, not just the game result

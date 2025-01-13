@@ -160,6 +160,8 @@ class PFState:
             self.moves = [staticmove_places[i] for i in (range(0, 13) if self.white_to_move else range(13, 26)) if self.board[i] == PFPiece.Empty]
             return
         self.moves = []
+        if self.winner != PFPiece.Empty:
+            return
         # Pushing moves.
         color = PFPiece.White if self.white_to_move else PFPiece.Black
         my_pusher = white_pusher if self.white_to_move else black_pusher

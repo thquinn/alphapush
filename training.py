@@ -71,15 +71,20 @@ def eval_match(old_net, new_net, games=100, evals_per_position=512, verbose=Fals
         white, black = (new_net, old_net) if new_plays_white else (old_net, new_net)
         state_hashes = []
         num_full_turns = 0
+        repetition = False
         while state.winner == PFPiece.Empty:
-            state_hashes.append(hash(state))
+            temp = max(0, start_temp - temp_round_decrement * num_full_turns) # taper temperature to 0 during the early game
+            state_hash = hash(state)
+            if state_hash in state_hashes and temp <= 0:
+                repetition = True
+                break
+            state_hashes.append(state_hash)
             total_moves += 1
             net = white if state.white_to_move else black
             root_output = net.forward(state.to_tensor())
             if root_output is not None:
                 root_output = root_output[0].numpy()
             mcts = MCTS(state, root_output)
-            temp = max(0, start_temp - temp_round_decrement * num_full_turns) # taper temperature to 0 during the early game
             mcts.run_with_net(net, evals_per_position, temperature=temp, print_depth=1, top_n=1)
             if not state.white_to_move and mcts.root.state.white_to_move:
                 num_full_turns += 1
@@ -87,6 +92,10 @@ def eval_match(old_net, new_net, games=100, evals_per_position=512, verbose=Fals
             if verbose:
                 print()
                 print(state)
+        if repetition:
+            print('Encountered repetition at zero temperature, restarting game...')
+            game -= 1
+            continue
         game_hashes.add(tuple(state_hashes + [hash(state)]))
         if (state.winner == PFPiece.White) == new_plays_white:
             new_wins += 1

@@ -9,12 +9,13 @@ from test_null_training import NullTrainingNetwork
 from training import eval_match
 
 def versus():
+    old_net = NullNet()
     old_net = torch.load('model_270K_v003.pt', weights_only=False).cpu().eval()
-    new_net = torch.load('model_270K_v004.pt', weights_only=False).cpu().eval()
+    new_net = torch.load('model_270K_v003.pt', weights_only=False).cpu().eval()
     eval_match(old_net, new_net, evals_per_position=2048, verbose=True)
 
 @torch.no_grad()
-def versus_human(model_name = '270K_v001', human_plays_white=True, evals_per_position=20000, temperature=0, state=PFState()):
+def versus_human(model_name = '270K_v003', human_plays_white=True, evals_per_position=20000, temperature=0, state=PFState()):
     print(f'Starting human vs. AI game. Human is playing the {'white' if human_plays_white else 'black'} pieces. Loading {model_name}...')
     net = torch.load(f'model_{model_name}.pt', weights_only=False).cpu()
     illegal_move = False
@@ -33,8 +34,9 @@ def versus_human(model_name = '270K_v001', human_plays_white=True, evals_per_pos
                 continue
             illegal_move = False
             state.move(move)
+            print()
         else:
-            root_output = net.forward(mcts.get_current_state_tensor())
+            root_output = net.forward(state.to_tensor())
             if root_output is not None:
                 root_output = root_output.numpy()[0]
             mcts = MCTS(PFState.copy(state), root_output)
@@ -56,7 +58,7 @@ def debug_state():
     # net = NullNet()
     net = torch.load('model_270K_v003.pt', weights_only=False).cpu().eval()
     
-    # state = PFState()
+    state = PFState()
     # state = PFState.construct('......W..WwwW.............', False, -1, -1) # 'blackstandard': example before black's first placement
     # state = PFState.construct('wWWw.......W..bB.BBb......', True, 2, -1) # 'firstwin': win-in-two that NullNet is missing @512, catching @2048. 270Kv0 catches it at 80!
     # state = PFState.construct('.....W.w...bWW.Bw.bB....B.', True, 2, 19) # 'antipolicy': win-in-three. Null spots it @24K 270Kv0-2 @32K, v3@24K
@@ -66,14 +68,14 @@ def debug_state():
     # state = PFState.construct('.bw.BWwB...B.W..b..W......', False, 2, 5) # 'thecall': v3 saves @64K
     # state = PFState.construct('....w.WW..wB.B.....BbWb...', True, 2, 11) # 'careless': v3 saves @8K
     # state = PFState.construct('......Ww.W...bBbB.W.w.B...', True, 0, 16) # 'lockin': v3 dislikes the win-in-7 until 4K
-    state = PFState.construct('......wWwW.WB.....BBb.b...', True, 2, 12) # 'squeeze': v3 saves @64K
+    # state = PFState.construct('......wWwW.WB.....BBb.b...', True, 2, 12) # 'squeeze': v3 saves @64K
 
     print(state)
     root_output = net.forward(state.to_tensor())
     if root_output is not None:
         root_output = root_output[0].numpy()
     mcts = MCTS(state, root_output)
-    mcts.run_with_net(net, min_evals=64000, temperature=0, print_depth=3, top_n=2)
+    mcts.run_with_net(net, min_evals=40000, temperature=0, print_depth=3, top_n=2)
 
 if __name__ == '__main__':
-    debug_state()
+    versus()

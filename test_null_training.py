@@ -35,15 +35,16 @@ class NullTrainingNetworkV2(nn.Module):
         super(NullTrainingNetworkV2, self).__init__()
         input_size = 160
         output_size = 807
-        hidden_layers = [input_size, 416, 208, 208, 208, 208, 208, 208, 208, 208, 416]
+        # hidden_layers = [input_size, 416, 208, 208, 208, 208, 208, 208, 208, 208, 416] # "900K" configuration
+        hidden_layers = [input_size, 208, 104, 104, 104, 104, 104, 104, 104, 104, 208] # "320K"
         self.model = nn.Sequential(
             *[
                 item for i in range(len(hidden_layers) - 1)
                 for item in (
                     nn.Linear(hidden_layers[i], hidden_layers[i + 1]),
-                    nn.ReLU(),
+                    nn.PReLU(),
                     nn.BatchNorm1d(hidden_layers[i + 1]),
-                    nn.Dropout(0.5),
+                    nn.Dropout(0.2),
                 )
             ],
             nn.Linear(hidden_layers[-1], output_size),
@@ -69,15 +70,20 @@ def get_loss(predictions, batch_output, test_loss=False):
     return loss_value + loss_policy * loss_policy_weight
     
 def test_null_training():
-    # net = NullTrainingNetworkV2().cuda()
-    net = torch.load('model_270K_v003.pt', weights_only=False).cpu()
-    net.model[19].p = 0.5 # Dropout percentage.
+    net = NullTrainingNetworkV2().cpu()
+    # net = torch.load('model_270K_v004_rc1.pt', weights_only=False).cpu()
+    # net.model[19].p = 0.5 # Dropout percentage.
     pytorch_total_params = sum(p.numel() for p in net.parameters())
     print(f'Created network with {pytorch_total_params} total parameters.')
     print('Loading dataset...')
-    dataset = torch.load('dataset_270K_v002_710K.tnsr', weights_only=False)
-    X = dataset['X']
-    Y = dataset['Y']
+    dataset = torch.load('dataset_270K_v002_880K.tnsr', weights_only=False, map_location='cpu')
+    dataset2 = torch.load('dataset_270K_v003_640K.tnsr', weights_only=False, map_location='cpu')
+    X = torch.cat([dataset['X'], dataset2['X']])
+    Y = torch.cat([dataset['Y'], dataset2['Y']])
+    torch.manual_seed(0)
+    randperm = torch.randperm(X.shape[0])
+    X = X[randperm].view(X.size())
+    Y = Y[randperm].view(Y.size())
     print(f'Loaded dataset. Inputs are of shape {X.shape}, outputs of shape {Y.shape}.')
     split = math.floor(len(X) * 0.9)
     X_train = X[:split,:].cuda()
@@ -92,31 +98,35 @@ def test_null_training():
     net.cuda()
     print(f'Starting test loss: {min_test_loss:.4f}.')
     # Train.
-    optimizer = torch.optim.SGD(net.parameters(), lr=0.002, momentum=0.9)
+    optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0.9)
     # torch.autograd.set_detect_anomaly(True)
     for epoch in range(1000):
         net.train()
         start_time = time.time()
+        total_train_loss = 0
+        batches = 0
         for (batch_input, batch_output) in training_batches:
             predictions = net(batch_input)
             loss = get_loss(predictions, batch_output)
+            total_train_loss += loss
+            batches += 1
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-        elapsed_time = time.time() - start_time
+        batch_time = time.time() - start_time
         net.eval()
         with torch.no_grad():
-            X_train_pred = net(X_train)
-            train_loss = get_loss(X_train_pred, Y_train, test_loss=False)
             net.cpu()
             X_test_pred = net(X_test)
             test_loss = get_loss(X_test_pred, Y_test, test_loss=True)
             net.cuda()
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
         if test_loss < min_test_loss:
             min_test_loss = test_loss
             torch.save(net, 'model_270K_v004.pt')
-        print(f'Epoch {epoch + 1} finished in {elapsed_time:.1f}s. Train/test loss: {train_loss:.4f}/{test_loss:.4f}.')
+        train_loss = total_train_loss / batches
+        elapsed_time = time.time() - start_time
+        print(f'Epoch {epoch + 1} finished in {elapsed_time:.1f}s ({batch_time:.1f}s batch time). Train/test loss: {train_loss:.4f}/{test_loss:.4f}.')
 
 if __name__ == '__main__':
     test_null_training()

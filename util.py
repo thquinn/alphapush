@@ -28,6 +28,6 @@ def combine_all_selfplay():
     X = torch.cat(Xs, dim=0)
     Y = torch.cat(Ys, dim=0)
     print(X.shape, Y.shape)
-    torch.save({'X': X, 'Y': Y}, 'dataset_270K_v002_880K.tnsr')
+    torch.save({'X': X, 'Y': Y}, 'dataset_270K_v003_640K.tnsr')
 
 combine_all_selfplay()
