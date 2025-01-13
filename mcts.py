@@ -149,9 +149,11 @@ class MCTS:
                 weights = weights ** (1 / temperature)
                 weights /= weights.sum()
             move = np.random.choice(moves, p=weights)
+        child = self.root.children[move]
         if print_depth > 0:
-            print(f'Chose {move} with {self.root.children[move].visits} visits.\n')
-        self.root = self.root.children[move]
+            prints = [move, child.visits, f'{child.average_reward():.2f}v', f'{self.root.child_policies[int(move)]:.2f}p']
+            print(f'Chose {prints} with {self.root.children[move].visits} visits.\n')
+        self.root = child
         self.root.parent = None
         self.current_node = self.root
         return move

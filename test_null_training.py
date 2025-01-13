@@ -70,20 +70,15 @@ def get_loss(predictions, batch_output, test_loss=False):
     return loss_value + loss_policy * loss_policy_weight
     
 def test_null_training():
-    net = NullTrainingNetworkV2().cpu()
-    # net = torch.load('model_270K_v004_rc1.pt', weights_only=False).cpu()
-    # net.model[19].p = 0.5 # Dropout percentage.
+    # net = NullTrainingNetworkV2().cpu()
+    net = torch.load('model_270K_v004.pt', weights_only=False).cpu()
+    net.model[19].p = 0.5 # Dropout percentage.
     pytorch_total_params = sum(p.numel() for p in net.parameters())
     print(f'Created network with {pytorch_total_params} total parameters.')
     print('Loading dataset...')
-    dataset = torch.load('dataset_270K_v002_880K.tnsr', weights_only=False, map_location='cpu')
-    dataset2 = torch.load('dataset_270K_v003_640K.tnsr', weights_only=False, map_location='cpu')
-    X = torch.cat([dataset['X'], dataset2['X']])
-    Y = torch.cat([dataset['Y'], dataset2['Y']])
-    torch.manual_seed(0)
-    randperm = torch.randperm(X.shape[0])
-    X = X[randperm].view(X.size())
-    Y = Y[randperm].view(Y.size())
+    dataset = torch.load('dataset_270K_v003_1120K.tnsr', weights_only=False, map_location='cpu')
+    X = dataset['X']
+    Y = dataset['Y']
     print(f'Loaded dataset. Inputs are of shape {X.shape}, outputs of shape {Y.shape}.')
     split = math.floor(len(X) * 0.9)
     X_train = X[:split,:].cuda()
@@ -98,7 +93,7 @@ def test_null_training():
     net.cuda()
     print(f'Starting test loss: {min_test_loss:.4f}.')
     # Train.
-    optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0.9)
+    optimizer = torch.optim.SGD(net.parameters(), lr=0.002, momentum=0.9)
     # torch.autograd.set_detect_anomaly(True)
     for epoch in range(1000):
         net.train()

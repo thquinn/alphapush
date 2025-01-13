@@ -320,6 +320,7 @@
     - We're also switching to not measuring loss on the entire training set post-epoch, since it was overrunning VRAM, so we'll see higher training loss in logs.
         - We should even expect to see higher training loss than validation loss in early epochs.
         - The larger the dataset / smaller the batches, the more pronounced this will be since we're averaging training loss over older and older batches
+        - Probably an even bigger source of loss increase is that now we're measuring in train() mode, where dropout is enabled.
         - I can still recognize when it's overfitting, so that's good! As learning slows down, averaging over old batches doesn't matter as much, and we can see the gap
     - Still getting ~0.87 value loss, which makes sense when all of the examples are -1 or 1, but most positions should be in the -0.25 to 0.25 range
     - rc1: Epoch 130 finished in 19.3s. Train/test loss: 1.5104/1.5197.
@@ -343,13 +344,23 @@
         - Train loss improvement is starting to slow around epoch 50, before it's even crossed over test loss. Looking underfit, though it *is* still decreasing.
         - Stopping: Epoch 73 finished in 68.8s. Train/test loss: 1.4888/1.4889. 0.8319 value, 2.6281 policy.
         - These small batch sizes are really reducing my GPU usage %.
-        - Increasing to 20x to .01lr is having surprisingly little effect on the pace of convergence
+        - Increasing learning rate 5x to .01 is having surprisingly little effect on the pace of convergence
+    - rc3: Trying 900K yet again
+        - A new best result, finally! Reaches 1.4695/1.4815 at epoch 40 with just 20%drop.
+        - Looked much slower to train at first, but it was just VLC running and (presumably) competing for VRAM.
+        - It seems like in low-to-mid-overfit scenarios, test-value loss thrashes more than test-policy loss. Policy just has more signal?
+        - Stopping: Epoch 47 finished in 76.0s (73.1s batch time). Train/test loss: 1.4648/1.4797. 0.8234 value, 2.6251 policy.
+    - A little inter-candidate eval:
+        - rc1 vs rc3 @256: with triple the parameters, rc3 should thrash rc1 on policy alone, right? Apparently not: rc1 wins 56%.
+        - rc1 vs rc2 @256: seems like rc2 won't stand a chance then, if the dataset recency matters that much? Well... rc1 wins 53%, within variance.
+        - The larger models don't take much longer to train, but they do take noticably longer to play, even 320K vs 270K params. Deeper networks must hurt the CPU.
+    - Back to 270K with more data: 1120K examples from v3. Trying to beat 1.5197 test loss.
+        - Our starting test loss vs 640K examples was 1.5600, now 1.5260...?
+        - lr0.01, 20%drop, 128batch: Epoch 51 finished in 33.1s (32.0s batch time). Train/test loss: 1.5051/1.5070.
+        - continuing at lr0.02, 50%drop: Epoch 37 finished in 36.2s (35.1s batch time). Train/test loss: 1.5014/1.5069. Basically no gains.
+        - Aaaand it only wins 43% vs rc1. It did have only 51 epochs of actual training vs the 130 of rc1, so... maybe that's why?
+        - rc1 63% vs v3
 - TODO
-    - training v4
-        - with such a small batch size, is training on CPU faster?
-        - test without PReLU
-        - test larger net
-        - try half() again...?
     - how can i juice this thing before the exhibition
         - don't generate moves of leaves until needed
         - profile
@@ -360,6 +371,7 @@
         - at match time: can we use the GPU to evaluate a single position somehow?
         - or, at match time: grab the most powerful cloud CPU I can find and use that to run instead
         - could disallow moving the same piece twice in a row, to reduce branching...?
+        - try half() again...?
         - is most robust child still the way to go?
             - if we wanted to be very fancy, we could try extrapolating node stats from current trends
     - try half precision on the new GPU

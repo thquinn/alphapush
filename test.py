@@ -5,13 +5,13 @@ import torch.nn as nn
 from mcts import MCTS
 from network import NullNet
 from pushfight import PFDirection, PFMove, PFPiece, PFState
-from test_null_training import NullTrainingNetwork
+from test_null_training import NullTrainingNetwork, NullTrainingNetworkV2
 from training import eval_match
 
 def versus():
-    old_net = NullNet()
+    # old_net = NullNet()
     old_net = torch.load('model_270K_v003.pt', weights_only=False).cpu().eval()
-    new_net = torch.load('model_270K_v003.pt', weights_only=False).cpu().eval()
+    new_net = torch.load('model_270K_v004_rc1.pt', weights_only=False).cpu().eval()
     eval_match(old_net, new_net, evals_per_position=2048, verbose=True)
 
 @torch.no_grad()
