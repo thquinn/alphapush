@@ -10,12 +10,12 @@ from training import eval_match
 
 def versus():
     # old_net = NullNet()
-    old_net = torch.load('model_270K_v003.pt', weights_only=False).cpu().eval()
-    new_net = torch.load('model_270K_v004_rc1.pt', weights_only=False).cpu().eval()
+    old_net = torch.load('model_270K_v005.pt', weights_only=False).cpu().eval()
+    new_net = torch.load('model_270K_v005.pt', weights_only=False).cpu().eval()
     eval_match(old_net, new_net, evals_per_position=2048, verbose=True)
 
 @torch.no_grad()
-def versus_human(model_name = '270K_v003', human_plays_white=True, evals_per_position=20000, temperature=0, state=PFState()):
+def versus_human(model_name = '270K_v005', human_plays_white=True, evals_per_position=20000, temperature=0, state=PFState()):
     print(f'Starting human vs. AI game. Human is playing the {'white' if human_plays_white else 'black'} pieces. Loading {model_name}...')
     net = torch.load(f'model_{model_name}.pt', weights_only=False).cpu()
     illegal_move = False
@@ -56,26 +56,30 @@ def versus_human(model_name = '270K_v003', human_plays_white=True, evals_per_pos
 @torch.no_grad()
 def debug_state():
     # net = NullNet()
-    net = torch.load('model_270K_v003.pt', weights_only=False).cpu().eval()
+    net = torch.load('model_270K_v005.pt', weights_only=False).cpu().eval()
     
     state = PFState()
     # state = PFState.construct('......W..WwwW.............', False, -1, -1) # 'blackstandard': example before black's first placement
     # state = PFState.construct('wWWw.......W..bB.BBb......', True, 2, -1) # 'firstwin': win-in-two that NullNet is missing @512, catching @2048. 270Kv0 catches it at 80!
-    # state = PFState.construct('.....W.w...bWW.Bw.bB....B.', True, 2, 19) # 'antipolicy': win-in-three. Null spots it @24K 270Kv0-2 @32K, v3@24K
-    # state = PFState.construct('.......W.w.bWB.B...wB.Wb..', False, 2, 22) # 'horizon6': 270Kv2-3 still failing @320K+
-    # state = PFState.construct('.........wwWW.BbB..BbW....', False, 1, 21) # 'deadlock': 270Kv1 blunders @200K and avoids @400K, 270Kv2 avoids @200K, v3@100K
-    # state = PFState.construct('...bwWBw....B..WW..B..b...', False, 2, 16) # 'goodenough': NullNet catches win-in-3 @256K, 270Kv3 misses @200K+
-    # state = PFState.construct('.bw.BWwB...B.W..b..W......', False, 2, 5) # 'thecall': v3 saves @64K
-    # state = PFState.construct('....w.WW..wB.B.....BbWb...', True, 2, 11) # 'careless': v3 saves @8K
-    # state = PFState.construct('......Ww.W...bBbB.W.w.B...', True, 0, 16) # 'lockin': v3 dislikes the win-in-7 until 4K
-    # state = PFState.construct('......wWwW.WB.....BBb.b...', True, 2, 12) # 'squeeze': v3 saves @64K
+    # state = PFState.construct('.....W.w...bWW.Bw.bB....B.', True, 2, 19) # 'antipolicy': win-in-three. Null spots it @24K 270Kv0-2 @32K, v3-5@24K
+    # state = PFState.construct('.......W.wb.WB.B...wB.Wb..', False, 1, 22) # 'horizon5': 270Kv3-5 saves @100K
+    # state = PFState.construct('...bwWBw....B..WW..B..b...', False, 2, 16) # 'goodenough': NullNet catches win-in-3 @256K, 270Kv3-4 misses @200K+
+    # state = PFState.construct('....w.WW..wB.B.....BbWb...', True, 2, 11) # 'careless': v3-4 saves @8K, v5@4K
+    # state = PFState.construct('......Ww.W...bBbB.W.w.B...', True, 0, 16) # 'lockin': v3-5 dislikes the win-in-7 until 4K
+    # state = PFState.construct('......wWwW.WB.....BBb.b...', True, 2, 12) # 'squeeze': v3-5 saves @64K
+    state = PFState.construct('...b.w...B.WwWBW..bB......', False, 0, 15) # 'trapup': v4 needs 8K to see the win-in-5
+    # state = PFState.construct('...B.WBW.bb..B.ww..W......', True, 0, 3) # 'betrayal': v3 blunders @2K, v4 saves @1K
+    # state = PFState.construct('.w.b..Bw.WW..B..B..Wb.....', False, 2, 9) # 'unsurething': v4 misses the win-in-3 @100K
+    # state = PFState.construct('....Ww.w.WW.....B.B.......', False, -1, -1) # 'misplaced': v3-4 like the killer Place@17 @2K
+    # state = PFState.construct('...b...Bw..BW..WW..wb.B...', True, 0, 11) # 'regression': v3 saves @512, v4@16K
+    # state = PFState.construct('.w......wWWW.BBbb..B......', True, 2, -1) # v4 can't see White's win-in-3 @64K
 
     print(state)
     root_output = net.forward(state.to_tensor())
     if root_output is not None:
         root_output = root_output[0].numpy()
     mcts = MCTS(state, root_output)
-    mcts.run_with_net(net, min_evals=40000, temperature=0, print_depth=3, top_n=2)
+    mcts.run_with_net(net, min_evals=8000, temperature=0, print_depth=1, top_n=99)
 
 if __name__ == '__main__':
-    versus()
+    debug_state()

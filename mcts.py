@@ -41,8 +41,8 @@ class MCTSNode:
                 self.children[prints[i][0]].debug_print(depth, current_depth + 1, top_n)
         if len(prints) > top_n and top_n > 1:
             if len(prints) > top_n + 1:
-                print(f'{" " * (current_depth - 1)}...')
-            print(f'{" " * (current_depth - 1)}{prints[-1]}')
+                print(f'{"  " * (current_depth - 1)}...')
+            print(f'{"  " * (current_depth - 1)}{prints[-1]}')
 
 class MCTS:
     root: MCTSNode

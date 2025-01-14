@@ -166,6 +166,7 @@
             - These fast moves disable noise and minimize exploration
         - "Forced Playouts and Policy Target Pruning": after N playouts in self-play, continue running until all root children have a minimum visit count
             - Then, modify the policy target to diminish moves that are still bad after this forced expansion
+        - "Policy Surprise Weighting: examples can appear multiple times in the dataset, proportional to how much their observed policy dist. diverged from the prediction
         - Their network has another policy head for expected response moves from the opponent, which is only used in self play.
     - Value loss is still basically not moving even after hundreds of batches. There are enough obvious cases that the net should be able to learn: something bad is happening.
         - Okay, here's a problem: when generating examples, I'm treating the value output as "did the current player win (1), or lose (-1)?"
@@ -176,7 +177,7 @@
     - Starting to seem like it's pretty inefficient running backprop on each training example just once
         - KataGo also keeps a "window" of examples from prior nets around.
             - The farther into training, the larger the window can be since even older models + playouts are stronger than the current net.
-            - Alpha_Go_ Zero used a simpler window of just the most recent 500K games.
+            - AlphaGoZero used a simpler window of just the most recent 500K games.
     - 117K batch1024 lr0.2: 0.0004 after ~40 epochs
         - lr decay .99 ** epoch: .00033 after 60 epochs
         X batch128: .00026 after 50 epochs, but twice as slow as batch1024. reverting...
@@ -357,12 +358,57 @@
     - Back to 270K with more data: 1120K examples from v3. Trying to beat 1.5197 test loss.
         - Our starting test loss vs 640K examples was 1.5600, now 1.5260...?
         - lr0.01, 20%drop, 128batch: Epoch 51 finished in 33.1s (32.0s batch time). Train/test loss: 1.5051/1.5070.
-        - continuing at lr0.02, 50%drop: Epoch 37 finished in 36.2s (35.1s batch time). Train/test loss: 1.5014/1.5069. Basically no gains.
+        - continuing at lr0.02, 50%drop: Epoch 37 finished in 36.2s (35.1s batch time). Train/test loss: 1.5014/1.5069. Basically no gains. Still looks underfit.
         - Aaaand it only wins 43% vs rc1. It did have only 51 epochs of actual training vs the 130 of rc1, so... maybe that's why?
         - rc1 63% vs v3
+    - Boy, we'd sure love to avoid setting moves on leaves until we're expanding it later, but we need to know if the current player has any legal moves, otherwise they lose
+        - We could do it where moves_left > 0
+    - Spot testing
+        - state = PFState.construct('.....WWw.BB.w..WB..bb.....', False, 2, 6) is a weird case: even at 4K, v4 wants to move a piece and then move it right back
+        - I'm still beating v4@20K in just a few moves
+        - 'misplaced': Place@17 is experiencing a big resurgence, seemingly because the policy logits for all other Black placements are falling
+            - It only seems to be happening in one position, on the third Black placement. v3 and v4 are roughly the same, but 900Kv4d is the worst with this.
+    - One last Hail Mary for 900K params with our v003_1120K dataset, trying to beat 1.5069 train loss
+        - Epoch 40 finished in 52.3s (50.2s batch time). Train/test loss: 1.5166/1.5152.
+        - Adam took us from 1.7072 to 1.5090 in 12 epochs. (saved as *_4b)
+        - Still with Adam, trying "curriculum learning" on v2 and v3 datasets: from 1.7033 to 1.5097 in 11 epochs on v2 (4c), then from 1.5221 to 1.5041 in 43 epochs (4d)
+            - New policy highscore of 2.6088
+        - Still loses against 270Kv4. Gonna keep it around and keep training it on the next set.
+- v5
+    - 270K: Starting loss 1.5073... that's low.
+        - Hits a low of 1.4970 at e35, but training loss keeps going down for another 50+
+    - 900K: Starting test loss: 1.4974. That's REAL low, not having much luck improving it.
+    - 270K attempt 2: maybe batch128 is just too hard, getting smoother descent with 1024 and lr0.02.
+        - Hits a low of 1.4959 after ~e100
+        - Wins 60% against v4, still playing Place@17 but maybe actually looking smarter otherwise
+    - Spot testing
+        - 'misplaced': v3 -> v4 -> v5 visits on Place@17 are 266, 273, 273... at least the trend has stopped (or paused)
+            - policy is higher, but so are most of the logits which is good since we don't want them to all be negative, right
+        - changed 'horizon6' to 'horizon5': still plenty hard (apparently) and only has one right answer (Move@15>16)
+    - 900K_v004d continues on dataset_270K_v004_1080K: Starting test loss: 1.5007. batch256 SGD0.02
+        - maxes at Epoch 61 finished in 33.3s (31.4s batch time). Train/test loss: 1.5170/1.4921, then to 1.4918 after a few epochs of 20%drop.
+    - Trying a fresh 670K network with no dropout and AdamW, which uses L2 regularization to reduce overfitting. Number to beat: 1.4959.
+        - Train and test both leveled off high
+        - Trying with 512batch and halved lr (0.01): overfitting!
+        - Things were better back when we were running on larger batches, so let's try upping the L2 (0.02) and slowing lr again (0.002)... still overfitting like a champ
+        - AdamW's weight_decay isn't doing much to combat overfitting, that I can see...
+        - Can test if we get better results from progressing through v2 -> v4 datasets
+    - Alright, forget Adam. More attempts at deeper architectures with SGD
+        - A deep 215K net with no normalization had no problem overfitting on 1M examples
+        - Struggling to get good results from L2: could be in part that I'm masking most of the output, and so not updating those weights, and they're just constantly decaying.
+    - Assorted fun facts
+        - LLaMa2 70B was trained on 28 examples per parameter.
+        - Leela Zero had 47 million params
 - TODO
+    - Figure out why the newer nets are obsessed with Place@17: some of Black's placement moves have bizarrely high average reward
+        - how is the reward SO high that it's overcoming a -0.95 policy logit?!
+        - is the MCTS tweak (rerunning won states 10x) breaking something?
+        - probably too early in the search to find terminal states: Place@17 is getting just 368 visits
+        - more likely to be the result of totally whacked-out value estimates in that subtree
+        - something wrong with the v003_1120K dataset, almost certainly
+        - is that why rc1 did the best: because it trained the least on the new dataset?
+        - pretty much every position with Place@17 should have a -1 value label: check this
     - how can i juice this thing before the exhibition
-        - don't generate moves of leaves until needed
         - profile
         - improvements from AZ and KataGo papers: Dirichlet noise and playout cap randomization
             - Dirichlet noise could also help prevent the "exploding policy problem"
@@ -372,6 +418,7 @@
         - or, at match time: grab the most powerful cloud CPU I can find and use that to run instead
         - could disallow moving the same piece twice in a row, to reduce branching...?
         - try half() again...?
+        - residual connections...?
         - is most robust child still the way to go?
             - if we wanted to be very fancy, we could try extrapolating node stats from current trends
     - try half precision on the new GPU
