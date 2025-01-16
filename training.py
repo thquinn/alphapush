@@ -36,9 +36,9 @@ def generate_training_data(net, min_training_items, evals_per_position=2048, par
             for i, mcts in enumerate(mctses):
                 mcts.receive_network_output(output[i] if output is not None else None)
         for mcts in mctses:
-            mcts.values.append(1 if mcts.root.state.white_to_move else -1)
             mcts.policies.append(mcts.to_policy_tensor())
             mcts.advance_root(temperature=0.25)
+            mcts.values.append(1 if mcts.root.state.white_to_move else -1)
             if mcts.root.state.winner != PFPiece.Empty:
                 # Construct training outputs.
                 training_values = mcts.values

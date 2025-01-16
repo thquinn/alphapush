@@ -61,23 +61,39 @@ class NullTrainingNetworkV3(nn.Module):
     def __init__(self):
         super(NullTrainingNetworkV3, self).__init__()
         input_size = 160
+        hidden_layer_size = 128
         output_size = 807
-        hidden_layers = [input_size, *([64] * 23), 128 ]
-        self.model = nn.Sequential(
-            *[
-                item for i in range(len(hidden_layers) - 1)
-                for item in (
-                    nn.Linear(hidden_layers[i], hidden_layers[i + 1], bias=False),
-                    nn.BatchNorm1d(hidden_layers[i + 1], eps=.01), # https://towardsdatascience.com/weight-decay-and-its-peculiar-effects-66e0aee3e7b8
-                    nn.PReLU(),
-                )
-            ],
-            nn.Linear(hidden_layers[-1], output_size),
+        self.reshape_in = nn.Sequential(
+            nn.Linear(input_size, hidden_layer_size, bias=False),
+            nn.BatchNorm1d(hidden_layer_size),
+            nn.ReLU(),
+            nn.Dropout(0.2),
         )
+        residual_blocks = []
+        for _ in range(3):
+            residual_blocks.append(nn.Sequential(
+                nn.Linear(hidden_layer_size, hidden_layer_size, bias=False),
+                nn.BatchNorm1d(hidden_layer_size),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                nn.Linear(hidden_layer_size, hidden_layer_size, bias=False),
+                nn.BatchNorm1d(hidden_layer_size),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                nn.Linear(hidden_layer_size, hidden_layer_size, bias=False),
+                nn.BatchNorm1d(hidden_layer_size),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+            ))
+        self.residual_blocks = nn.ModuleList(residual_blocks)
+        self.reshape_out = nn.Linear(hidden_layer_size, output_size)
         self.value_activation = nn.Tanh()
     
     def forward(self, x):
-        features = self.model(x)
+        features = self.reshape_in(x)
+        for residual_block in self.residual_blocks:
+            features = residual_block(features) + features
+        features = self.reshape_out(features)
         value = self.value_activation(features[0:1])
         policy = features[1:]
         return torch.cat((value, policy))
@@ -95,14 +111,14 @@ def get_loss(predictions, batch_output, test_loss=False):
     return loss_value + loss_policy * loss_policy_weight
     
 def test_null_training():
-    net = NullTrainingNetworkV3().cpu()
-    # net = torch.load('model_215K_v005.pt', weights_only=False).cpu()
-    # net.model[19].p = 0.5 # Dropout percentage.
+    # net = NullTrainingNetworkV3().cpu()
+    net = torch.load('model_270K_v006.pt', weights_only=False).cpu()
+    net.model[19].p = 0.2 # 270K dropout percentage.
     # net.model[39].p = 0.2 # 900K dropout percentage.
     pytorch_total_params = sum(p.numel() for p in net.parameters())
     print(f'Created network with {pytorch_total_params} total parameters.')
     print('Loading dataset...')
-    dataset = torch.load('dataset_270K_v004_1080K.tnsr', weights_only=False, map_location='cpu')
+    dataset = torch.load('dataset_270K_v006_720K.tnsr', weights_only=False, map_location='cpu')
     X = dataset['X']
     Y = dataset['Y']
     print(f'Loaded dataset. Inputs are of shape {X.shape}, outputs of shape {Y.shape}.')
@@ -119,7 +135,7 @@ def test_null_training():
     net.cuda()
     print(f'Starting test loss: {min_test_loss:.4f}.')
     # Train.
-    optimizer = torch.optim.SGD(net.parameters(), lr=0.02, momentum=0.9, weight_decay=0.001)
+    optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0.9)
     # optimizer = torch.optim.AdamW(net.parameters(), lr=0.002, weight_decay=0.2)
     # torch.autograd.set_detect_anomaly(True)
     torch.backends.cudnn.benchmark = True 
@@ -146,7 +162,7 @@ def test_null_training():
         # torch.cuda.empty_cache()
         if test_loss < min_test_loss:
             min_test_loss = test_loss
-            torch.save(net, 'model_215K_v005.pt')
+            torch.save(net, 'model_270K_v007.pt')
         train_loss = total_train_loss / batches
         elapsed_time = time.time() - start_time
         print(f'Epoch {epoch + 1} finished in {elapsed_time:.1f}s ({batch_time:.1f}s batch time). Train/test loss: {train_loss:.4f}/{test_loss:.4f}.')

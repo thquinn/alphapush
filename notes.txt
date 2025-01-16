@@ -385,7 +385,7 @@
         - 'misplaced': v3 -> v4 -> v5 visits on Place@17 are 266, 273, 273... at least the trend has stopped (or paused)
             - policy is higher, but so are most of the logits which is good since we don't want them to all be negative, right
         - changed 'horizon6' to 'horizon5': still plenty hard (apparently) and only has one right answer (Move@15>16)
-    - 900K_v004d continues on dataset_270K_v004_1080K: Starting test loss: 1.5007. batch256 SGD0.02
+    - 900K_v004d continues on dataset_270K_v004_1080K: Starting test loss: 1.5007. batch256 SGD lr0.02
         - maxes at Epoch 61 finished in 33.3s (31.4s batch time). Train/test loss: 1.5170/1.4921, then to 1.4918 after a few epochs of 20%drop.
     - Trying a fresh 670K network with no dropout and AdamW, which uses L2 regularization to reduce overfitting. Number to beat: 1.4959.
         - Train and test both leveled off high
@@ -394,35 +394,66 @@
         - AdamW's weight_decay isn't doing much to combat overfitting, that I can see...
         - Can test if we get better results from progressing through v2 -> v4 datasets
     - Alright, forget Adam. More attempts at deeper architectures with SGD
-        - A deep 215K net with no normalization had no problem overfitting on 1M examples
+        - A deep 215K net with no normalization had no problem overfitting on 1M examples, test loss bottomed at 1.5074.
         - Struggling to get good results from L2: could be in part that I'm masking most of the output, and so not updating those weights, and they're just constantly decaying.
+        - Up to 512batch, testing weight_decay values
+            - 0.0001 diverges after Epoch 10 finished in 26.4s (25.3s batch time). Train/test loss: 1.5031/1.5099.
+            - 0.0005 also diverges after Epoch 10 finished in 26.9s (25.8s batch time). Train/test loss: 1.5088/1.5129.
+        - Back to 20% dropout and... Epoch 54 finished in 32.5s (31.3s batch time). Train/test loss: 1.5247/1.5119. About the same as L2, takes way longer.
+            - Test loss does linger near the minimum instead of rising, and occasionally dips slightly below.
+        - Trying to retrain 270Kv4 on v4_1080K dataset
+            - Dropout is just such an easy hyperparameter to work with: 20% works
+            - Long run. Epoch 92 finished in 21.2s (20.2s batch time). Train/test loss: 1.5007/1.4972.
+                - Then moderate overfitting for 900 epochs, test loss remains pretty stable. Epoch 1000 finished in 19.2s (18.4s batch time). Train/test loss: 1.4759/1.5042.
+                - It's really just value that gets overfit, and I can't believe I haven't thought of this before. Best policy is reached in epoch 965: 2.5544.
+                - But we only win 46% against v5: value loss is still important.
     - Assorted fun facts
         - LLaMa2 70B was trained on 28 examples per parameter.
         - Leela Zero had 47 million params
+    - Maybe policy loss should be weighted a little higher, especially since it's the one that can be improved substantially (vs. the terrible value signal)
+        - Value loss seems more important for search, actually.
+- v6
+    - 270Kv5 lr0.01 batch256 drop10%. Starting test loss: 1.4925.
+        - The starting loss getting lower and lower makes me worry that policy is self-reinforcing via training data. Value seems the bigger problem right now though.
+        - Smooth descent of train/test for 30 epochs, then a little bumpier for test but no real divergence until ~e60
+        - Epoch 59 finished in 23.1s (22.0s batch time). Train/test loss: 1.4751/1.4801. New best policy loss of 2.5275.
+        - Beats v5 61%.
+    - 'misplaced': visits are down from 273 to 259, value from 0.29 to 0.27.
+    - 900Kv5d lr0.01 batch256 drop20%: Starting test loss: 1.4859. Epoch 74 finished in 54.3s (50.8s batch time). Train/test loss: 1.4890/1.4796.
+        - 38% vs v6, Place@17 up to 322 visits. Total disaster.
+    - Trying 275K deep config with residual blocks, lr0.0002 20%drop: Epoch 59 finished in 35.8s (34.4s batch time). Train/test loss: 1.5086/1.4976. saved as test_v006a
+        - lr0.002/1 through datasets 002-004: test loss 1.7075 to 1.5319 in v2, 1.5495 to 1.5121 in v3, 1.5075 to 1.4982 in v4
+            - Quickly beat previous bests on v2 and v3 sets, but the previous best loss on v4 (1.4959) was from batch1024 and is tough to beat
+            - Reached 1.4982 on batch256, only overfitting on batch1024. Also tried weight decay, batch4096, no dice.
+            - Starting loss on v5 was 1.4896, lower than 270K's start, also lower than the "test_v006a" attempt's *end*
+            - v5 lr0.001: 1.4896 to 1.4775.
+        - Place@17 has 203 visits and the lowest policy, still in third though with the highest average value. Something's up with value...
+            - Expecting it to crush 270Kv6 on this alone.
+            - Shit, it played Place@17 in its first game as Black. And its second. Never mind.
+            - 45%.
+- v7
+    - 270Kv6 lr0.01 batch256 drop10%. Starting test loss: 1.4744. Epoch 51 finished in 22.1s (21.1s batch time). Train/test loss: 1.4662/1.4695.
+        - Only 51%, plus 'misplaced' has crept back up to 274 visits, and now has THE HIGHEST POLICY.
+    - Alright, we had a bug with generating training examples: the signs were incorrect on the move when the player changed.
+        - Hopefully this was the cause of the post-Place@17 values, and the high value loss in general.
+        - v6 with White to play after misplacement is 0.73: still pretty high, despite all the -1 examples it's been shown.
+            - Importantly, it's not negative, so still unclear where Black was getting all the high values from.
+- v7 take 2, post value fix
+    - 270Kv6 lr0.01 batch128 drop20%. Starting test loss: 1.6307. Starting test policy loss: 2.5264 (low), test value loss: 0.9991 (very high, could be a good sign!)
 - TODO
-    - Figure out why the newer nets are obsessed with Place@17: some of Black's placement moves have bizarrely high average reward
-        - how is the reward SO high that it's overcoming a -0.95 policy logit?!
-        - is the MCTS tweak (rerunning won states 10x) breaking something?
-        - probably too early in the search to find terminal states: Place@17 is getting just 368 visits
-        - more likely to be the result of totally whacked-out value estimates in that subtree
-        - something wrong with the v003_1120K dataset, almost certainly
-        - is that why rc1 did the best: because it trained the least on the new dataset?
-        - pretty much every position with Place@17 should have a -1 value label: check this
+    - separate loss.backward for value and policy, to handle value overfitting and policy underfitting?
     - how can i juice this thing before the exhibition
         - profile
         - improvements from AZ and KataGo papers: Dirichlet noise and playout cap randomization
             - Dirichlet noise could also help prevent the "exploding policy problem"
         - exploration might be too low given the conservative policy range (range is growing, though...)
-        - RAVE?
         - at match time: can we use the GPU to evaluate a single position somehow?
         - or, at match time: grab the most powerful cloud CPU I can find and use that to run instead
         - could disallow moving the same piece twice in a row, to reduce branching...?
-        - try half() again...?
-        - residual connections...?
         - is most robust child still the way to go?
             - if we wanted to be very fancy, we could try extrapolating node stats from current trends
-    - try half precision on the new GPU
+    - try half precision on the new GPU (requires tensor cores)
     - parallelize promotion games
     - seeing anecdotal evidence that the training values should incorporate the MCTS result, not just the game result
-    - "curriculum" based on high-loss game states
+    - "curriculum" based on high-loss game states: KataGo kind of does this
     - per-net benchmarks like "% of cases where the best move after 1M playouts had the best policy logit"
