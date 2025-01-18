@@ -86,7 +86,7 @@ def eval_match(old_net, new_net, games=100, evals_per_position=512, verbose=Fals
             root_output = net.forward(state.to_tensor())
             if root_output is not None:
                 root_output = root_output[0].numpy()
-            mcts = MCTS(state, root_output)
+            mcts = MCTS(state, root_output, )
             mcts.run_with_net(net, evals_per_position, temperature=temp, print_depth=1, top_n=1)
             if not state.white_to_move and mcts.root.state.white_to_move:
                 num_full_turns += 1
@@ -120,16 +120,27 @@ def generate_training_dataset():
     net = torch.load(f'model_{model_name}.pt', weights_only=False).cpu()
     inputs = []
     outputs = []
+    # Google Cloud Logging stuff
+    # logging_client = logging.Client()
+    # logger = logging_client.logger('alphapush')
+    # logger.log_text(f'Starting generation of {items} items from {model_name} on {socket.gethostname()}.')
     print('Starting dataset generation.')
     while True:
         batch_time = time.time()
-        input, output = generate_training_data(net, min_training_items=1, parallelism=1)
-        # print(f'Generated {input.shape[0]} examples in {(time.time() - batch_time):.1f} seconds. Saving...')
-        # inputs.append(input)
-        # outputs.append(output)
-        # torch.save({'X': torch.cat(inputs, dim=0), 'Y': torch.cat(outputs, dim=0)}, f'dataset_{model_name}_1K_{uuid.uuid4()}.tnsr')
-        # print('Saved.')
-        break
+        input, output = generate_training_data(net, min_training_items=10000, parallelism=64)
+        print(f'Generated {input.shape[0]} examples in {(time.time() - batch_time):.1f} seconds. Saving...')
+        inputs.append(input)
+        outputs.append(output)
+        torch.save({'X': torch.cat(inputs, dim=0), 'Y': torch.cat(outputs, dim=0)}, f'dataset_{model_name}_10K_{uuid.uuid4()}.tnsr')
+        # Saving to a Google Cloud Storage bucket.
+        # storage_client = storage.Client('alphapush-selfplay-results')
+        # bucket = storage_client.bucket('alphapush-selfplay-results')
+        # blob = bucket.blob(f'dataset_{model_name}_10K_{uuid.uuid4()}.tnsr')
+        # with blob.open("wb", ignore_flush=True) as f:
+        #     torch.save({'X': torch.cat(inputs, dim=0), 'Y': torch.cat(outputs, dim=0)}, f)
+        print('Saved.')
+    # logger.log_text(f'Generated {input.shape[0]} items from {model_name} on {socket.gethostname()}.')
 
 if __name__ == '__main__':
+    # os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcloud.json" # loading auth key to upload to Google Cloud Storage bucket
     generate_training_dataset()

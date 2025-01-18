@@ -470,9 +470,11 @@
         - 65% vs 270Kv8, uses ~60% more time
     - 270Kv7 lr0.002 batch256 drop20% with twice the training data. Starting test loss: 1.5409. Epoch 661 finished in 44.7s (42.5s batch time). Train/test loss: 1.4615/1.4620.
         - Another surprisingly smooth, long training session. I guess the learning rate could go up more?
-        - 48% vs 270Kv8, despite a .0147 loss improvement, which has historically been significant. 
+        - 48% vs 270Kv8, despite a .0147 loss improvement, which has historically been significant.
+- 'v8pf': Another 62% win just by expanding highest-policy children first
+    - Spot testing: regressions in multiple test cases, but improvements in others. Seems like a principled change, so I wanna keep it.
+    - Winning 100% vs. NullNet, so at least there's that.
 - TODO
-    - expand children in policy order
     - separate loss.backward for value and policy, to handle value overfitting and policy underfitting?
     - taper temperature during self-play
     - how can i juice this thing before the exhibition
@@ -490,21 +492,3 @@
     - seeing anecdotal evidence that the training values should incorporate the MCTS result, not just the game result
     - "curriculum" based on high-loss game states: KataGo kind of does this
     - per-net benchmarks like "% of cases where the best move after 1M playouts had the best policy logit"
-- BLOG POST
-    - At first tried to train from each game once, then threw it out. Huge waste!
-    - Python is not good at running MCTS
-        - But it almost doesn't matter, since even if you batch inference, all of your time is spent moving tensors to/from the GPU
-        - The important lesson is that you just need a ton of data
-    - Value-flipping bug: MCTS is still tricky to implement yet surprisingly resilient to error
-    - Google Cloud tricks
-    - Hyperparameters: network sizes, dropout vs L2, Adam/AdamW never really worked
-    - Attempts at training larger nets, curriculum learning (is it just the larger corpus?)
-    - Problems with my implementation
-        - e^x in the exploration term
-        - policy self-reinforcement
-        - High temperature in self-play
-        - Noisy value signal, noisy value descent compared to smooth policy
-        - 2048-playout self-play games makes for slow iteration
-        - Probably still some bugs: should have written tests and worked up from simpler cases.
-    - Future improvements: continuous training, Dirichlet noise
-    - References: "Simple AlphaZero," AGZ paper, AZ paper, KataGo paper, KataGo improvements page on GitHub

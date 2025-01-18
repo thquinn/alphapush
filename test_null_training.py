@@ -7,7 +7,13 @@ import torch.nn.functional as F
 class NullTrainingNetwork(nn.Module):
     def __init__(self):
         super(NullTrainingNetwork, self).__init__()
+        # input vector: see PFState.to_tensor
         input_size = 160
+        # output vector:
+        #   [1]: value: 1 if the current player is winning, -1 if the current player is losing
+        #   [26]: (policy) place a piece here
+        #   [26*26]: (policy) move a piece from space to space
+        #   [26*4]: (policy) from space A, push in direction B
         output_size = 807
         hidden_layers = [input_size, 208, 104, 104, 104, 208] # "270K"
         self.model = nn.Sequential(

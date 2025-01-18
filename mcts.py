@@ -88,11 +88,8 @@ class MCTS:
                 continue
             # Otherwise, select a new child and prepare for network output.
             if not all(self.current_node.children.values()):
-                missing_move = None
-                for k, v in self.current_node.children.items():
-                    if v is None:
-                        missing_move = k
-                        break
+                missing_moves = [move for move in self.current_node.children.keys() if self.current_node.children[move] is None]
+                missing_move = max(missing_moves, key=lambda k: self.current_node.child_policies[int(k)])
                 new_state = PFState.copy(self.current_node.state)
                 new_state.move(missing_move)
                 new_node = MCTSNode(self.current_node, new_state)
