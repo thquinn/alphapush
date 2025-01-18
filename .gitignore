@@ -162,3 +162,5 @@ cython_debug/
 # Don't commit models for now.
 *.pt
 *.tnsr
+!model_270K_v008.pt
+!model_520K_v008.pt

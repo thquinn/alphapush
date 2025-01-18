@@ -144,3 +144,10 @@ def generate_training_dataset():
 if __name__ == '__main__':
     # os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcloud.json" # loading auth key to upload to Google Cloud Storage bucket
     generate_training_dataset()
+
+# Google Cloud Compute Engine startup script:
+# cd /alphapush
+# source pushenv/bin/activate
+# python training.py
+
+# Upload code and newest network, update training.py to point to new net, create instance group of 8x 1vCPU T2D
