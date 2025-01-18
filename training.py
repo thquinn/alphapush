@@ -31,14 +31,14 @@ def generate_training_data(net, min_training_items, evals_per_position=2048, par
             if isinstance(net, NullNet):
                 output = None
             else:
-                input_tensor = torch.stack([mcts.get_current_state_tensor() for mcts in mctses])
+                input_tensor = torch.cat([mcts.get_current_state_tensor() for mcts in mctses])
                 output = net.forward(input_tensor).numpy()
             for i, mcts in enumerate(mctses):
                 mcts.receive_network_output(output[i] if output is not None else None)
         for mcts in mctses:
+            mcts.values.append(1 if mcts.root.state.white_to_move else -1)
             mcts.policies.append(mcts.to_policy_tensor())
             mcts.advance_root(temperature=0.25)
-            mcts.values.append(1 if mcts.root.state.white_to_move else -1)
             if mcts.root.state.winner != PFPiece.Empty:
                 # Construct training outputs.
                 training_values = mcts.values
@@ -63,11 +63,13 @@ def eval_match(old_net, new_net, games=100, evals_per_position=512, verbose=Fals
     game_hashes = set()
     total_moves = 0
     start_time = time.time()
-    for game in range(games):
+    game = 0
+    while game < 100:
+        game += 1
         if verbose:
-            print(f'Starting evaluation game {game + 1} of {games}.')
+            print(f'Starting evaluation game {game} of {games}.')
         state = PFState()
-        new_plays_white = game % 2 == 0
+        new_plays_white = game % 2 == 1
         white, black = (new_net, old_net) if new_plays_white else (old_net, new_net)
         state_hashes = []
         num_full_turns = 0
@@ -114,19 +116,20 @@ def eval_match(old_net, new_net, games=100, evals_per_position=512, verbose=Fals
     return new_wins / games >= .55
 
 def generate_training_dataset():
-    model_name = '270K_v001'
+    model_name = '270K_v006'
     net = torch.load(f'model_{model_name}.pt', weights_only=False).cpu()
     inputs = []
     outputs = []
     print('Starting dataset generation.')
     while True:
         batch_time = time.time()
-        input, output = generate_training_data(net, min_training_items=10000, parallelism=32)
-        print(f'Generated {input.shape[0]} examples in {(time.time() - batch_time):.1f} seconds. Saving...')
-        inputs.append(input)
-        outputs.append(output)
-        torch.save({'X': torch.cat(inputs, dim=0), 'Y': torch.cat(outputs, dim=0)}, f'dataset_{model_name}_1K_{uuid.uuid4()}.tnsr')
-        print('Saved.')
+        input, output = generate_training_data(net, min_training_items=1, parallelism=1)
+        # print(f'Generated {input.shape[0]} examples in {(time.time() - batch_time):.1f} seconds. Saving...')
+        # inputs.append(input)
+        # outputs.append(output)
+        # torch.save({'X': torch.cat(inputs, dim=0), 'Y': torch.cat(outputs, dim=0)}, f'dataset_{model_name}_1K_{uuid.uuid4()}.tnsr')
+        # print('Saved.')
+        break
 
 if __name__ == '__main__':
     generate_training_dataset()

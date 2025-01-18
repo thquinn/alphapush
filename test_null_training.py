@@ -9,7 +9,7 @@ class NullTrainingNetwork(nn.Module):
         super(NullTrainingNetwork, self).__init__()
         input_size = 160
         output_size = 807
-        hidden_layers = [input_size, 208, 104, 104, 104, 208]
+        hidden_layers = [input_size, 208, 104, 104, 104, 208] # "270K"
         self.model = nn.Sequential(
             *[
                 item for i in range(len(hidden_layers) - 1)
@@ -29,39 +29,12 @@ class NullTrainingNetwork(nn.Module):
         value = self.value_activation(features[0:1])
         policy = features[1:]
         return torch.cat((value, policy))
-
-class NullTrainingNetworkV2(nn.Module):
-    def __init__(self):
-        super(NullTrainingNetworkV2, self).__init__()
-        input_size = 160
-        output_size = 807
-        hidden_layers = [input_size, 416, 208, 208, 208, 208, 208, 208, 208, 208, 416] # "900K" configuration
-        # hidden_layers = [input_size, 208, 104, 104, 104, 104, 104, 104, 104, 104, 208] # "320K"
-        self.model = nn.Sequential(
-            *[
-                item for i in range(len(hidden_layers) - 1)
-                for item in (
-                    nn.Linear(hidden_layers[i], hidden_layers[i + 1]),
-                    nn.PReLU(),
-                    nn.BatchNorm1d(hidden_layers[i + 1]),
-                    nn.Dropout(0.5),
-                )
-            ],
-            nn.Linear(hidden_layers[-1], output_size),
-        )
-        self.value_activation = nn.Tanh()
-    
-    def forward(self, x):
-        features = self.model(x)
-        value = self.value_activation(features[0:1])
-        policy = features[1:]
-        return torch.cat((value, policy))
     
 class NullTrainingNetworkV3(nn.Module):
     def __init__(self):
         super(NullTrainingNetworkV3, self).__init__()
         input_size = 160
-        hidden_layer_size = 128
+        hidden_layer_size = 192 # "520K"
         output_size = 807
         self.reshape_in = nn.Sequential(
             nn.Linear(input_size, hidden_layer_size, bias=False),
@@ -112,20 +85,25 @@ def get_loss(predictions, batch_output, test_loss=False):
     
 def test_null_training():
     # net = NullTrainingNetworkV3().cpu()
-    net = torch.load('model_270K_v006.pt', weights_only=False).cpu()
-    net.model[19].p = 0.2 # 270K dropout percentage.
-    # net.model[39].p = 0.2 # 900K dropout percentage.
+    net = torch.load('model_270K_v007.pt', weights_only=False).cpu()
+    dropouts = 0
+    for module in net.modules():
+        if isinstance(module, nn.Dropout):
+            module.p = 0.2
+            dropouts += 1
+    if dropouts > 0:
+        print(f'Adjusted {dropouts} dropout layer{'' if dropouts == 1 else 's'}.')
     pytorch_total_params = sum(p.numel() for p in net.parameters())
-    print(f'Created network with {pytorch_total_params} total parameters.')
+    print(f'Training network with {pytorch_total_params} total parameters.')
     print('Loading dataset...')
-    dataset = torch.load('dataset_270K_v006_720K.tnsr', weights_only=False, map_location='cpu')
+    dataset = torch.load('dataset_270K_v007_2470K.tnsr', weights_only=False, map_location='cpu')
     X = dataset['X']
     Y = dataset['Y']
     print(f'Loaded dataset. Inputs are of shape {X.shape}, outputs of shape {Y.shape}.')
     split = math.floor(len(X) * 0.9)
     X_train = X[:split,:].cuda()
     Y_train = Y[:split,:].cuda()
-    training_batches = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, Y_train), batch_size=128, shuffle=True, drop_last=True)
+    training_batches = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, Y_train), batch_size=256, shuffle=True, drop_last=True)
     X_test = X[split:,:]
     Y_test = Y[split:,:]
 
@@ -136,7 +114,6 @@ def test_null_training():
     print(f'Starting test loss: {min_test_loss:.4f}.')
     # Train.
     optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0.9)
-    # optimizer = torch.optim.AdamW(net.parameters(), lr=0.002, weight_decay=0.2)
     # torch.autograd.set_detect_anomaly(True)
     torch.backends.cudnn.benchmark = True 
     for epoch in range(1000):
@@ -162,7 +139,7 @@ def test_null_training():
         # torch.cuda.empty_cache()
         if test_loss < min_test_loss:
             min_test_loss = test_loss
-            torch.save(net, 'model_270K_v007.pt')
+            torch.save(net, 'model_270K_v008rc2.pt')
         train_loss = total_train_loss / batches
         elapsed_time = time.time() - start_time
         print(f'Epoch {epoch + 1} finished in {elapsed_time:.1f}s ({batch_time:.1f}s batch time). Train/test loss: {train_loss:.4f}/{test_loss:.4f}.')

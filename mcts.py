@@ -115,15 +115,14 @@ class MCTS:
                 self.current_node.child_policies = policy
         # Backpropagate value up the tree.
         value = 0 if output is None else output[0]
-        if self.current_node.parent:
-            current_white_to_move = self.current_node.parent.state.white_to_move
-            current_player = PFPiece.White if current_white_to_move else PFPiece.Black
+        white_to_move = self.current_node.state.white_to_move # False
         if self.current_node.state.winner != PFPiece.Empty:
+            current_player = PFPiece.White if white_to_move else PFPiece.Black
             value = 1 if (self.current_node.state.winner == current_player) else -1
         while self.current_node is not None:
             self.current_node.visits += 1
             if self.current_node.parent:
-                self.current_node.total_value += value if (self.current_node.parent.state.white_to_move == current_white_to_move) else -value
+                self.current_node.total_value += value if (self.current_node.parent.state.white_to_move == white_to_move) else -value
             self.current_node = self.current_node.parent
         self.current_node = self.root
     

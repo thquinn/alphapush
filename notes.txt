@@ -440,8 +440,41 @@
             - Importantly, it's not negative, so still unclear where Black was getting all the high values from.
 - v7 take 2, post value fix
     - 270Kv6 lr0.01 batch128 drop20%. Starting test loss: 1.6307. Starting test policy loss: 2.5264 (low), test value loss: 0.9991 (very high, could be a good sign!)
+        - Makes sense that value loss essentially looked random, since all post-push moves previously had their sign flipped
+        - Epoch 49 finished in 21.7s (21.0s batch time). Train/test loss: 1.4945/1.4917.
+        - 'misplaced': second lowest policy, still the top move and highest value but just barely at 233 visits and 0.24v. Better direction...
+        - 25%. Terrible direction! Almost every game it won was from v6 playing Place@17, and it played Place@17 itself many times, in new situations.
+    - Did we have a bug? Looking at it more carefully, it seems like the original logic was correct.
+        - Looks like the bug was in MCTS the whole time. So the training data is fine...?
+        - The more accurate the value estimates were getting, the worse it would perform in MCTS.
+    - Spot testing 'v6fix'
+        - 'misplaced': v6 now HATES Place@17: dead last. This has to be the bug.
+        - The regressions so far involve failed to find a faster win in an already won position.
+        - 'singularity': Exactly the type of thing I'd hope MCTS could spot, and it finally does! The next batch of training data should be MUCH better.
+- v7 take 3, post MCTS fix
+    - 270Kv6 lr0.01 batch128 drop20%. Starting test loss: 1.4726. Epoch 27 finished in 46.1s (44.8s batch time). Train/test loss: 1.4719/1.4669.
+    - Couple more at batch256: Epoch 5 finished in 26.7s (25.5s batch time). Train/test loss: 1.4652/1.4658. New best policy loss: 2.5196.
+    - Found a minor bug in eval_match: draws weren't actually getting replayed, deducting against the new net's potential win count.
+    - 59+% vs v6: both networks looking much stronger in the eval match.
+    - 275K: Epoch 22 finished in 35.7s (34.1s batch time). Train/test loss: 1.4619/1.4656. New best policy loss: 2.5148.
+    - 900K: This topology just ain't workin'. Discontinuing...
+    - New residual "520K"
+        - Fresh on v6: Epoch 42 finished in 33.6s (31.8s batch time). Train/test loss: 1.4485/1.4714.
+        - lr0.002 batch256 drop10% curriculum. v3: 1.7129 -> 1.5129, v4: 1.5078 -> 1.4977, v5: 1.4890 -> 1.4791
+        - Up to drop40% for v6: 1.4743 -> 1.4627 after 430 epochs. Ran for 737, test loss was surprisingly stable throughout moderate overfitting. Best policy loss: 2.5100.
+- v8
+    - 270Kv7 lr0.002 batch256 drop20%. Starting test loss: 1.5393. Epoch 151 finished in 21.6s (20.7s batch time). Train/test loss: 1.4834/1.4767.
+        - Super smooth descent, could definitely up the learning rate.
+        - 55%.
+    - 520Kv7 lr0.01 batch256 drop20%. Starting test loss: 1.5392. Epoch 46 finished in 62.1s (58.6s batch time). Train/test loss: 1.4537/1.4592. Best policy loss: 2.4876.
+        - 65% vs 270Kv8, uses ~60% more time
+    - 270Kv7 lr0.002 batch256 drop20% with twice the training data. Starting test loss: 1.5409. Epoch 661 finished in 44.7s (42.5s batch time). Train/test loss: 1.4615/1.4620.
+        - Another surprisingly smooth, long training session. I guess the learning rate could go up more?
+        - 48% vs 270Kv8, despite a .0147 loss improvement, which has historically been significant. 
 - TODO
+    - expand children in policy order
     - separate loss.backward for value and policy, to handle value overfitting and policy underfitting?
+    - taper temperature during self-play
     - how can i juice this thing before the exhibition
         - profile
         - improvements from AZ and KataGo papers: Dirichlet noise and playout cap randomization
@@ -457,3 +490,21 @@
     - seeing anecdotal evidence that the training values should incorporate the MCTS result, not just the game result
     - "curriculum" based on high-loss game states: KataGo kind of does this
     - per-net benchmarks like "% of cases where the best move after 1M playouts had the best policy logit"
+- BLOG POST
+    - At first tried to train from each game once, then threw it out. Huge waste!
+    - Python is not good at running MCTS
+        - But it almost doesn't matter, since even if you batch inference, all of your time is spent moving tensors to/from the GPU
+        - The important lesson is that you just need a ton of data
+    - Value-flipping bug: MCTS is still tricky to implement yet surprisingly resilient to error
+    - Google Cloud tricks
+    - Hyperparameters: network sizes, dropout vs L2, Adam/AdamW never really worked
+    - Attempts at training larger nets, curriculum learning (is it just the larger corpus?)
+    - Problems with my implementation
+        - e^x in the exploration term
+        - policy self-reinforcement
+        - High temperature in self-play
+        - Noisy value signal, noisy value descent compared to smooth policy
+        - 2048-playout self-play games makes for slow iteration
+        - Probably still some bugs: should have written tests and worked up from simpler cases.
+    - Future improvements: continuous training, Dirichlet noise
+    - References: "Simple AlphaZero," AGZ paper, AZ paper, KataGo paper, KataGo improvements page on GitHub
